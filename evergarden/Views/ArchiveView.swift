@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct ArchiveView: View {
+    // 🌟 화면을 띄울지 말지 결정하는 상태 스위치 추가
+    @State private var isShowingCreateAlbum = false
     // 따뜻한 원목 책장 색상 유지
     let woodFrame = Color(red: 0.88, green: 0.72, blue: 0.54)
     let woodBackground = Color(red: 0.72, green: 0.53, blue: 0.40)
@@ -87,6 +89,8 @@ struct ArchiveView: View {
                 HStack {
                     Spacer()
                     Button(action: {
+                        // 🌟 버튼을 누르면 스위치를 On으로 켬!
+                        isShowingCreateAlbum = true
                         // 새 앨범 추가 액션
                     }) {
                         Text("+ 새 앨범 추가")
@@ -144,6 +148,10 @@ struct ArchiveView: View {
             }
             .zIndex(1)
         }
+        // 🌟 ZStack 바깥에 시트 띄우기 설정 추가
+                .sheet(isPresented: $isShowingCreateAlbum) {
+                    CreateAlbumView()
+                }
     }
 }
 
