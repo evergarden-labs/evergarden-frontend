@@ -16,13 +16,13 @@ struct CreateAlbumView: View {
         case scrapbooks = "스크랩북 (Scrapbooks)"
     }
     
-    // 앨범 색상 선택지 (ColorExtension에 있는 색상 + 2가지 추가 조합)
+    // 앨범 색상 선택지 (기본 제공 색상)
     let albumColors: [Color] = [
         .egSub, // 인디핑크
         .egMain, // 초록
         .egPoint, // 노랑
-        Color(red: 0.45, green: 0.65, blue: 0.85), // 파랑 (하늘색)
-        Color(red: 0.6, green: 0.5, blue: 0.7) // 보라색
+        Color(red: 0.45, green: 0.65, blue: 0.85), // 파랑
+        Color(red: 0.6, green: 0.5, blue: 0.7) // 보라
     ]
     
     var body: some View {
@@ -68,7 +68,7 @@ struct CreateAlbumView: View {
                                             Text(type.rawValue)
                                                 .font(.system(size: 16, weight: .bold))
                                             Spacer()
-                                            // 선택된 항목에 체크마크 표시
+                                            
                                             if selectedType == type {
                                                 Image(systemName: "checkmark.circle.fill")
                                                     .font(.system(size: 20))
@@ -91,7 +91,7 @@ struct CreateAlbumView: View {
                             }
                         }
                         
-                        // 3. 앨범 색상 선택 칸
+                        // 3. 앨범 색상 선택 칸 (🌟 컬러 팔레트 추가)
                         VStack(alignment: .leading, spacing: 10) {
                             Text("테마 색상")
                                 .font(.system(size: 18, weight: .bold))
@@ -99,24 +99,37 @@ struct CreateAlbumView: View {
                             
                             ScrollView(.horizontal, showsIndicators: false) {
                                 HStack(spacing: 15) {
+                                    // 1️⃣ 기본 색상 동그라미들
                                     ForEach(albumColors, id: \.self) { color in
                                         Circle()
                                             .fill(color)
                                             .frame(width: 45, height: 45)
-                                            // 선택된 색상일 경우 바깥에 굵은 테두리 추가
-                                            .overlay(
+                                            .padding(4)
+                                            .background(
                                                 Circle()
-                                                    .stroke(Color.egFunctional, lineWidth: selectedColor == color ? 3 : 0)
-                                                    .padding(-4) // 테두리를 바깥으로 띄움
+                                                    .stroke(selectedColor == color ? Color.egFunctional : Color.clear, lineWidth: 3)
                                             )
                                             .onTapGesture {
                                                 withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
                                                     selectedColor = color
                                                 }
                                             }
-                                            .padding(4) // 테두리가 잘리지 않도록 여백 추가
                                     }
+                                    
+                                    // 2️⃣ 커스텀 색상 팔레트 (ColorPicker)
+                                    ColorPicker("커스텀 색상", selection: $selectedColor, supportsOpacity: false)
+                                        .labelsHidden() // 옆에 글씨 안 보이게 숨김 (무지개 아이콘만 나옴)
+                                        .scaleEffect(1.2) // 기본 무지개 아이콘이 살짝 작아서 1.2배 키움
+                                        .frame(width: 45, height: 45) // 다른 동그라미들과 크기 맞춤
+                                        .padding(4)
+                                        .background(
+                                            // 만약 선택된 색상이 기본 색상 배열(albumColors)에 없는 색이라면(즉, 커스텀 색상이라면) 무지개 버튼 겉에 테두리 표시!
+                                            Circle()
+                                                .stroke(!albumColors.contains(selectedColor) ? Color.egFunctional : Color.clear, lineWidth: 3)
+                                        )
                                 }
+                                .padding(.vertical, 5)
+                                .padding(.horizontal, 4)
                             }
                         }
                     }
@@ -125,7 +138,6 @@ struct CreateAlbumView: View {
             }
             .navigationTitle("새 앨범 추가")
             .navigationBarTitleDisplayMode(.inline)
-            // 상단 취소/완료 버튼
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("취소") {
@@ -135,13 +147,12 @@ struct CreateAlbumView: View {
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("완료") {
-                        // TODO: 여기에 새로운 앨범을 배열에 추가하는 로직이 들어갑니다.
                         print("\(albumName) / \(selectedType.rawValue) / 생성완료!")
-                        dismiss() // 화면 닫기
+                        dismiss()
                     }
                     .font(.system(size: 16, weight: .bold))
-                    .foregroundColor(albumName.isEmpty ? Color.gray : .egFunctional) // 이름이 비어있으면 회색처리
-                    .disabled(albumName.isEmpty) // 이름이 비어있으면 터치 불가
+                    .foregroundColor(albumName.isEmpty ? Color.gray : .egFunctional)
+                    .disabled(albumName.isEmpty)
                 }
             }
         }
