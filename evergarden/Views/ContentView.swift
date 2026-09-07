@@ -16,7 +16,6 @@ struct ContentView: View {
                     ArchiveView()
                     
                 case .planner:
-                    // 🌟 플래너 화면 완벽 연결!
                     PlannerView()
                         
                 case .timeCapsule:
@@ -26,8 +25,8 @@ struct ContentView: View {
                     CommunityView()
                     
                 case .myMenu:
-                    Text("마이 메뉴 화면이 들어올 자리입니다.")
-                        .foregroundColor(.egFunctional)
+                    // 🌟 마이페이지 화면 완벽 연결!
+                    MyPageView()
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
