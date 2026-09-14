@@ -59,7 +59,7 @@ struct ArchiveLayout: Equatable {
     var rotation: Double
 }
 
-struct ArchiveItem: Identifiable {
+struct ArchiveItem: Identifiable, Equatable {
     let id = UUID()
     let itemId: Int64
     var sortOrder: Int
@@ -71,6 +71,10 @@ struct ArchiveItem: Identifiable {
     var imageData: Data?
     var uiImage: UIImage?
     let mockColor: Color = [Color.red, Color.blue, Color.green, Color.orange, Color.purple].randomElement()!
+    
+    static func == (lhs: ArchiveItem, rhs: ArchiveItem) -> Bool {
+        lhs.itemId == rhs.itemId && lhs.sortOrder == rhs.sortOrder && lhs.pageIndex == rhs.pageIndex && lhs.layout == rhs.layout && lhs.caption == rhs.caption && lhs.isCover == rhs.isCover
+    }
 }
 
 // MARK: - 🛡️ 강력한 보안: SQL 인젝션 및 XSS 공격 패턴 완벽 차단 필터
@@ -314,6 +318,13 @@ struct ArchiveDetailView: View {
     let archive: ArchiveSummary
     var onDelete: () -> Void
     
+    @Environment(\.dismiss) var dismiss
+    
+    // 초기 원본 데이터 상태 보관용 (변경 감지 비교용)
+    @State private var initialItems: [ArchiveItem] = [
+        ArchiveItem(itemId: 101, sortOrder: 1, pageIndex: 0, layout: ArchiveLayout(x: 0.35, y: 0.35, width: 0.4, height: 0.25, rotation: -5), caption: "추억의 시작", isCover: true),
+        ArchiveItem(itemId: 102, sortOrder: 2, pageIndex: 0, layout: ArchiveLayout(x: 0.65, y: 0.65, width: 0.35, height: 0.22, rotation: 10), caption: "즐거운 한때", isCover: false)
+    ]
     @State private var items: [ArchiveItem] = [
         ArchiveItem(itemId: 101, sortOrder: 1, pageIndex: 0, layout: ArchiveLayout(x: 0.35, y: 0.35, width: 0.4, height: 0.25, rotation: -5), caption: "추억의 시작", isCover: true),
         ArchiveItem(itemId: 102, sortOrder: 2, pageIndex: 0, layout: ArchiveLayout(x: 0.65, y: 0.65, width: 0.35, height: 0.22, rotation: 10), caption: "즐거운 한때", isCover: false)
@@ -321,37 +332,64 @@ struct ArchiveDetailView: View {
     
     @State private var isEditing = false
     @State private var showingDeleteAlert = false
+    @State private var showingUnsavedAlert = false // 🌟 저장 안 됨 경고 얼럿 상태
     @State private var selectedPhotoItem: PhotosPickerItem? = nil
     @State private var enlargedItem: ArchiveItem? = nil
     
     @State private var scrapbookPageCount: Int = 1
     @State private var currentScrapbookPage: Int = 0
     
+    // 변경 사항이 생겼는지 확인하는 프로퍼티
+    var hasUnsavedChanges: Bool {
+        return items != initialItems
+    }
+    
     var body: some View {
         ZStack {
             Color(hex: archive.primaryColor ?? "#EFEFEF").ignoresSafeArea()
             
             VStack(spacing: 0) {
-                // 🌟 상단 여백 및 편집 버튼 영역 (좌우 여백 20pt 완벽 대칭)
                 HStack {
+                    // 커스텀 뒤로가기 버튼 (변경 감지 체크)
+                    Button(action: {
+                        if hasUnsavedChanges {
+                            showingUnsavedAlert = true
+                        } else {
+                            dismiss()
+                        }
+                    }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 14, weight: .bold))
+                            Text("뒤로")
+                                .font(.system(size: 14, weight: .bold))
+                        }
+                        .foregroundColor(.egFunctional)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(JellyButtonBackground(mainColor: Color.gray.opacity(0.15), subColor: Color.white.opacity(0.9)))
+                    }
+                    .padding(.leading, 20)
+                    
                     if isEditing {
                         Button(action: { showingDeleteAlert = true }) {
                             Text("앨범 삭제")
                                 .font(.system(size: 14, weight: .bold))
                                 .foregroundColor(.red.opacity(0.9))
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 10)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
                                 .offset(y: -1)
                                 .background(JellyButtonBackground(mainColor: Color.red.opacity(0.15), subColor: Color.white.opacity(0.9)))
                         }
-                        .padding(.leading, 20)
+                        .padding(.leading, 8)
                     }
                     
                     Spacer()
                     
                     Button(action: {
                         if isEditing {
-                            print("💾 ARCH-07 스크랩북 레이아웃 일괄 저장 통신 준비 완료!")
+                            print("💾 ARCH-07 레이아웃 일괄 저장 통신 완료!")
+                            initialItems = items // 저장 완료 시 초기값 갱신
                         }
                         isEditing.toggle()
                     }) {
@@ -359,7 +397,7 @@ struct ArchiveDetailView: View {
                             .font(.system(size: 14, weight: .bold))
                             .foregroundColor(isEditing ? .egFunctional : .gray)
                             .padding(.horizontal, 16)
-                            .padding(.vertical, 10)
+                            .padding(.vertical, 8)
                             .offset(y: -1)
                             .background(JellyButtonBackground(mainColor: Color.gray.opacity(0.2), subColor: Color.white.opacity(0.95)))
                     }
@@ -368,28 +406,32 @@ struct ArchiveDetailView: View {
                 .padding(.top, 12)
                 .padding(.bottom, 8)
                 
-                // 🌟 책 형식 컨테이너 (하단 탭바와 겹치지 않도록 높이와 여백을 넉넉하게 최적화)
                 Group {
                     switch archive.theme {
                     case .polaroid:
                         PolaroidThemeView(items: $items, isEditing: $isEditing, enlargedItem: $enlargedItem) { clickedItem in
                             if !isEditing { enlargedItem = clickedItem }
+                        } onDeleteItem: { itemId in
+                            items.removeAll { $0.itemId == itemId }
                         }
                     case .album:
                         AlbumThemeView(items: $items, layoutType: archive.layoutType, isEditing: $isEditing, enlargedItem: $enlargedItem) { clickedItem in
                             if !isEditing { enlargedItem = clickedItem }
+                        } onDeleteItem: { itemId in
+                            items.removeAll { $0.itemId == itemId }
                         }
                     case .scrapbook:
                         ScrapbookThemeView(items: $items, isEditing: $isEditing, pageCount: $scrapbookPageCount, currentPage: $currentScrapbookPage, enlargedItem: $enlargedItem) { clickedItem in
                             if !isEditing { enlargedItem = clickedItem }
+                        } onDeleteItem: { itemId in
+                            items.removeAll { $0.itemId == itemId }
                         }
                     }
                 }
                 .padding(.horizontal, 16)
-                .padding(.bottom, isEditing ? 130 : 90) // 🌟 편집 모드일 때 하단 추가 버튼 공간 확보
+                .padding(.bottom, isEditing ? 130 : 90)
             }
             
-            // 🌟 하단 사진 추가 / 페이지 추가 버튼 영역 (잘림 방지 및 위치 상향 조정)
             VStack {
                 Spacer()
                 if isEditing {
@@ -442,11 +484,10 @@ struct ArchiveDetailView: View {
                         Spacer()
                     }
                     .padding(.horizontal, 24)
-                    .padding(.bottom, 95) // 🌟 하단 탭바 바로 위쪽에 안전하게 위치하도록 여백 조정
+                    .padding(.bottom, 95)
                 }
             }
             
-            // 🌟 팝업창 (은은한 블러 + 원본 비율 보기)
             if let targetItem = enlargedItem {
                 ZStack {
                     Color.black.opacity(0.5)
@@ -489,18 +530,30 @@ struct ArchiveDetailView: View {
                 .zIndex(999)
             }
         }
-        .navigationTitle(archive.title)
-        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true) // 기본 백버튼 숨기고 커스텀 백버튼 사용
         .alert("앨범 삭제", isPresented: $showingDeleteAlert) {
             Button("취소", role: .cancel) { }
             Button("삭제", role: .destructive) { onDelete() }
         } message: {
             Text("이 아카이브를 정말 삭제할까요?\n(이 작업은 되돌릴 수 없습니다.)")
         }
+        // 🌟 저장하지 않고 나가기 경고 얼럿
+        .alert("저장되지 않은 변경 사항", isPresented: $showingUnsavedAlert) {
+            Button("취소", role: .cancel) { }
+            Button("저장하고 나가기", role: .none) {
+                print("💾 ARCH-07 강제 저장 통신 완료!")
+                dismiss()
+            }
+            Button("저장하지 않고 나가기", role: .destructive) {
+                dismiss()
+            }
+        } message: {
+            Text("변경 사항이 아직 저장되지 않았습니다.\n저장하시겠습니까?")
+        }
     }
 }
 
-// MARK: - ✂️ 스크랩북 테마 뷰 (페이지 페이징 시스템)
+// MARK: - ✂️ 스크랩북 테마 뷰
 struct ScrapbookThemeView: View {
     @Binding var items: [ArchiveItem]
     @Binding var isEditing: Bool
@@ -508,6 +561,7 @@ struct ScrapbookThemeView: View {
     @Binding var currentPage: Int
     @Binding var enlargedItem: ArchiveItem?
     var onCardTapped: (ArchiveItem) -> Void
+    var onDeleteItem: (Int64) -> Void
     
     var body: some View {
         ZStack {
@@ -517,7 +571,8 @@ struct ScrapbookThemeView: View {
                         items: $items,
                         pageIndex: pageIndex,
                         isEditing: isEditing,
-                        onCardTapped: onCardTapped
+                        onCardTapped: onCardTapped,
+                        onDeleteItem: onDeleteItem
                     )
                     .tag(pageIndex)
                 }
@@ -528,12 +583,12 @@ struct ScrapbookThemeView: View {
     }
 }
 
-// MARK: - 📄 스크랩북 단일 페이지 캔버스
 struct ScrapbookPageView: View {
     @Binding var items: [ArchiveItem]
     let pageIndex: Int
     let isEditing: Bool
     var onCardTapped: (ArchiveItem) -> Void
+    var onDeleteItem: (Int64) -> Void
     
     var body: some View {
         GeometryReader { geo in
@@ -544,6 +599,8 @@ struct ScrapbookPageView: View {
                 ForEach($items.filter { $0.wrappedValue.pageIndex == pageIndex }) { $item in
                     ScrapbookItemView(item: $item, canvasSize: geo.size, isEditing: isEditing, onTap: {
                         onCardTapped($item.wrappedValue)
+                    }, onDelete: {
+                        onDeleteItem($item.wrappedValue.itemId)
                     })
                 }
             }
@@ -551,12 +608,12 @@ struct ScrapbookPageView: View {
     }
 }
 
-// MARK: - 🖼️ 개별 스크랩북 사진 아이템
 struct ScrapbookItemView: View {
     @Binding var item: ArchiveItem
     let canvasSize: CGSize
     let isEditing: Bool
     var onTap: () -> Void
+    var onDelete: () -> Void
     
     @State private var dragOffset: CGSize = .zero
     @State private var magnificationScale: CGFloat = 1.0
@@ -569,43 +626,55 @@ struct ScrapbookItemView: View {
         let baseWidth: CGFloat = safeCanvasWidth * 0.4
         let currentWidth = baseWidth * CGFloat(item.layout.width) * magnificationScale
         
-        return VStack(spacing: 4) {
-            Group {
-                if let uiImage = item.uiImage {
-                    Image(uiImage: uiImage)
-                        .resizable()
-                        .scaledToFit()
-                } else {
-                    Rectangle()
-                        .fill(item.mockColor.opacity(0.8))
-                        .frame(width: currentWidth, height: currentWidth * 0.75)
-                        .overlay(Image(systemName: "photo").foregroundColor(.white.opacity(0.6)))
+        return ZStack(alignment: .topTrailing) {
+            VStack(spacing: 4) {
+                Group {
+                    if let uiImage = item.uiImage {
+                        Image(uiImage: uiImage)
+                            .resizable()
+                            .scaledToFit()
+                    } else {
+                        Rectangle()
+                            .fill(item.mockColor.opacity(0.8))
+                            .frame(width: currentWidth, height: currentWidth * 0.75)
+                            .overlay(Image(systemName: "photo").foregroundColor(.white.opacity(0.6)))
+                    }
+                }
+                .frame(width: currentWidth)
+                .cornerRadius(8)
+                .clipped()
+                
+                if isEditing {
+                    TextField("문구", text: Binding(
+                        get: { item.caption ?? "" },
+                        set: { item.caption = sanitizeInput($0) }
+                    ))
+                    .font(.system(size: 10, weight: .bold))
+                    .multilineTextAlignment(.center)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .frame(width: currentWidth)
+                } else if let caption = item.caption, !caption.isEmpty {
+                    Text(caption)
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(.black.opacity(0.8))
+                        .lineLimit(1)
                 }
             }
-            .frame(width: currentWidth)
-            .cornerRadius(8)
-            .clipped()
+            .padding(6)
+            .background(Color.white)
+            .cornerRadius(12)
+            .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
             
             if isEditing {
-                TextField("문구", text: Binding(
-                    get: { item.caption ?? "" },
-                    set: { item.caption = sanitizeInput($0) }
-                ))
-                .font(.system(size: 10, weight: .bold))
-                .multilineTextAlignment(.center)
-                .textFieldStyle(RoundedBorderTextFieldStyle())
-                .frame(width: currentWidth)
-            } else if let caption = item.caption, !caption.isEmpty {
-                Text(caption)
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundColor(.black.opacity(0.8))
-                    .lineLimit(1)
+                Button(action: onDelete) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 20))
+                        .foregroundColor(.red)
+                        .background(Color.white.clipShape(Circle()))
+                }
+                .offset(x: 6, y: -6)
             }
         }
-        .padding(6)
-        .background(Color.white)
-        .cornerRadius(12)
-        .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
         .rotationEffect(.degrees(item.layout.rotation) + rotationAngle)
         .position(
             x: (safeCanvasWidth * CGFloat(item.layout.x)).isFinite ? (safeCanvasWidth * CGFloat(item.layout.x)) + dragOffset.width : 150,
@@ -654,13 +723,14 @@ struct ScrapbookItemView: View {
     }
 }
 
-// MARK: - 📖 앨범 테마 뷰 (기존 유지)
+// MARK: - 📖 앨범 테마 뷰
 struct AlbumThemeView: View {
     @Binding var items: [ArchiveItem]
     let layoutType: AlbumLayoutType
     @Binding var isEditing: Bool
     @Binding var enlargedItem: ArchiveItem?
     var onCardTapped: (ArchiveItem) -> Void
+    var onDeleteItem: (Int64) -> Void
     
     var pageChunks: [[ArchiveItem]] {
         let pageSize = layoutType.rawValue
@@ -703,6 +773,8 @@ struct AlbumThemeView: View {
                                     }) { $item in
                                         AlbumCellView(item: $item, cellWidth: cellWidth, isEditing: isEditing, onTap: {
                                             onCardTapped($item.wrappedValue)
+                                        }, onDelete: {
+                                            onDeleteItem($item.wrappedValue.itemId)
                                         })
                                     }
                                 }
@@ -727,62 +799,76 @@ struct AlbumCellView: View {
     let cellWidth: CGFloat
     let isEditing: Bool
     var onTap: () -> Void
+    var onDelete: () -> Void
     
     var body: some View {
-        VStack(spacing: 6) {
-            Group {
-                if let uiImage = item.uiImage {
-                    Image(uiImage: uiImage)
-                        .resizable()
-                        .scaledToFill()
+        ZStack(alignment: .topTrailing) {
+            VStack(spacing: 6) {
+                Group {
+                    if let uiImage = item.uiImage {
+                        Image(uiImage: uiImage)
+                            .resizable()
+                            .scaledToFill()
+                    } else {
+                        Rectangle()
+                            .fill(item.mockColor.opacity(0.8))
+                            .overlay(Image(systemName: "photo").foregroundColor(.white.opacity(0.6)))
+                    }
+                }
+                .frame(width: cellWidth - 16, height: cellWidth - 16)
+                .cornerRadius(10)
+                .clipped()
+                
+                if isEditing {
+                    TextField("문구 입력", text: Binding(
+                        get: { item.caption ?? "" },
+                        set: { item.caption = sanitizeInput($0) }
+                    ))
+                    .font(.system(size: 10, weight: .bold))
+                    .multilineTextAlignment(.center)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .frame(height: 18)
                 } else {
-                    Rectangle()
-                        .fill(item.mockColor.opacity(0.8))
-                        .overlay(Image(systemName: "photo").foregroundColor(.white.opacity(0.6)))
+                    if let caption = item.caption, !caption.isEmpty {
+                        Text(caption)
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(.black.opacity(0.8))
+                            .lineLimit(1)
+                            .frame(height: 18)
+                    } else {
+                        Spacer().frame(height: 18)
+                    }
                 }
             }
-            .frame(width: cellWidth - 16, height: cellWidth - 16)
-            .cornerRadius(10)
-            .clipped()
+            .padding(8)
+            .frame(width: cellWidth, height: cellWidth + 36)
+            .background(Color.white)
+            .cornerRadius(16)
+            .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
+            .onTapGesture {
+                onTap()
+            }
             
             if isEditing {
-                TextField("문구 입력", text: Binding(
-                    get: { item.caption ?? "" },
-                    set: { item.caption = sanitizeInput($0) }
-                ))
-                .font(.system(size: 10, weight: .bold))
-                .multilineTextAlignment(.center)
-                .textFieldStyle(RoundedBorderTextFieldStyle())
-                .frame(height: 18)
-            } else {
-                if let caption = item.caption, !caption.isEmpty {
-                    Text(caption)
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(.black.opacity(0.8))
-                        .lineLimit(1)
-                        .frame(height: 18)
-                } else {
-                    Spacer().frame(height: 18)
+                Button(action: onDelete) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 20))
+                        .foregroundColor(.red)
+                        .background(Color.white.clipShape(Circle()))
                 }
+                .offset(x: 4, y: -4)
             }
-        }
-        .padding(8)
-        .frame(width: cellWidth, height: cellWidth + 36)
-        .background(Color.white)
-        .cornerRadius(16)
-        .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
-        .onTapGesture {
-            onTap()
         }
     }
 }
 
-// MARK: - 📸 폴라로이드 테마 뷰 (기존 유지)
+// MARK: - 📸 폴라로이드 테마 뷰
 struct PolaroidThemeView: View {
     @Binding var items: [ArchiveItem]
     @Binding var isEditing: Bool
     @Binding var enlargedItem: ArchiveItem?
     var onCardTapped: (ArchiveItem) -> Void
+    var onDeleteItem: (Int64) -> Void
     
     var chunkedItems: [[ArchiveItem]] {
         var chunks: [[ArchiveItem]] = []
@@ -818,6 +904,8 @@ struct PolaroidThemeView: View {
                                     }) { $item in
                                         HangingPolaroidCard(item: $item, isEditing: isEditing, onTap: {
                                             onCardTapped($item.wrappedValue)
+                                        }, onDelete: {
+                                            onDeleteItem($item.wrappedValue.itemId)
                                         })
                                     }
                                     
@@ -843,62 +931,75 @@ struct HangingPolaroidCard: View {
     @Binding var item: ArchiveItem
     let isEditing: Bool
     var onTap: () -> Void
+    var onDelete: () -> Void
     
     var body: some View {
         GeometryReader { cardGeo in
             let cardWidth = cardGeo.size.width
             
-            VStack(spacing: 0) {
-                Rectangle()
-                    .fill(Color(hex: "#C19A6B"))
-                    .frame(width: 12, height: 20)
-                    .cornerRadius(2)
-                    .shadow(color: .black.opacity(0.3), radius: 1, y: 1)
-                    .zIndex(1)
-                    .offset(y: 10)
-                
-                VStack(spacing: 6) {
-                    Group {
-                        if let uiImage = item.uiImage {
-                            Image(uiImage: uiImage)
-                                .resizable()
-                                .scaledToFill()
+            ZStack(alignment: .topTrailing) {
+                VStack(spacing: 0) {
+                    Rectangle()
+                        .fill(Color(hex: "#C19A6B"))
+                        .frame(width: 12, height: 20)
+                        .cornerRadius(2)
+                        .shadow(color: .black.opacity(0.3), radius: 1, y: 1)
+                        .zIndex(1)
+                        .offset(y: 10)
+                    
+                    VStack(spacing: 6) {
+                        Group {
+                            if let uiImage = item.uiImage {
+                                Image(uiImage: uiImage)
+                                    .resizable()
+                                    .scaledToFill()
+                            } else {
+                                Rectangle()
+                                    .fill(item.mockColor.opacity(0.8))
+                                    .overlay(Image(systemName: "photo").foregroundColor(.white.opacity(0.6)))
+                            }
+                        }
+                        .frame(width: cardWidth - 16, height: cardWidth - 16)
+                        .clipped()
+                        
+                        if isEditing {
+                            TextField("문구 입력", text: Binding(
+                                get: { item.caption ?? "" },
+                                set: { item.caption = sanitizeInput($0) }
+                            ))
+                            .font(.system(size: 10, weight: .bold))
+                            .multilineTextAlignment(.center)
+                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                            .frame(height: 18)
                         } else {
-                            Rectangle()
-                                .fill(item.mockColor.opacity(0.8))
-                                .overlay(Image(systemName: "photo").foregroundColor(.white.opacity(0.6)))
+                            if let caption = item.caption, !caption.isEmpty {
+                                Text(caption)
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundColor(.black.opacity(0.8))
+                                    .lineLimit(1)
+                                    .frame(height: 18)
+                            } else {
+                                Spacer().frame(height: 18)
+                            }
                         }
                     }
-                    .frame(width: cardWidth - 16, height: cardWidth - 16)
-                    .clipped()
-                    
-                    if isEditing {
-                        TextField("문구 입력", text: Binding(
-                            get: { item.caption ?? "" },
-                            set: { item.caption = sanitizeInput($0) }
-                        ))
-                        .font(.system(size: 10, weight: .bold))
-                        .multilineTextAlignment(.center)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .frame(height: 18)
-                    } else {
-                        if let caption = item.caption, !caption.isEmpty {
-                            Text(caption)
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundColor(.black.opacity(0.8))
-                                .lineLimit(1)
-                                .frame(height: 18)
-                        } else {
-                            Spacer().frame(height: 18)
-                        }
+                    .padding(8)
+                    .background(Color.white)
+                    .shadow(color: .black.opacity(0.15), radius: 3, y: 2)
+                    .rotationEffect(.degrees(item.layout.rotation > 0 ? 3 : -3))
+                    .onTapGesture {
+                        onTap()
                     }
                 }
-                .padding(8)
-                .background(Color.white)
-                .shadow(color: .black.opacity(0.15), radius: 3, y: 2)
-                .rotationEffect(.degrees(item.layout.rotation > 0 ? 3 : -3))
-                .onTapGesture {
-                    onTap()
+                
+                if isEditing {
+                    Button(action: onDelete) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 20))
+                            .foregroundColor(.red)
+                            .background(Color.white.clipShape(Circle()))
+                    }
+                    .offset(x: 4, y: 10)
                 }
             }
         }
