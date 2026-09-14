@@ -102,8 +102,6 @@ struct CommunityView: View {
                 // 🌟 피드 리스트 (COMM-01)
                 ScrollView(showsIndicators: false) {
                     LazyVStack(spacing: 16) {
-                        // 지역 필터가 적용된 피드만 보여줌
-                        let filteredPosts = selectedRegion == "전체" ? posts : posts.filter { $0.region == selectedRegion }
                         
                         ForEach($posts) { $post in
                             // 지역 필터링 통과한 것만 렌더링

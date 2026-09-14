@@ -191,9 +191,10 @@ struct EditProfileView: View {
                                     .stroke(errorMessage.isEmpty ? Color.egFunctional.opacity(0.3) : Color.red, lineWidth: 1.5)
                             )
                             // 🌟 글씨를 입력할 때마다 중복 검사 실행
-                            .onChange(of: tempNickname) { newValue in
-                                validateNickname(newValue)
-                            }
+                        // 🌟 oldValue를 무시(_)하고 newValue만 받도록 수정!
+                        .onChange(of: tempNickname) { _, newValue in
+                            validateNickname(newValue)
+                        }
                         
                         // 에러 메시지 출력 영역
                         if !errorMessage.isEmpty {
