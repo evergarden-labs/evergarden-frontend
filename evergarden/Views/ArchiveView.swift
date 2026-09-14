@@ -19,8 +19,8 @@ enum ArchiveTheme: String, CaseIterable, Hashable {
 
 // 앨범 그리드 레이아웃 규격 (2x2 또는 2x3)
 enum AlbumLayoutType: Int, CaseIterable, Hashable {
-    case grid2x2 = 4 // 총 4장 (2열 x 2행)
-    case grid2x3 = 6 // 총 6장 (2열 x 3행)
+    case grid2x2 = 4
+    case grid2x3 = 6
     
     var displayName: String {
         switch self {
@@ -63,6 +63,7 @@ struct ArchiveItem: Identifiable {
     let id = UUID()
     let itemId: Int64
     var sortOrder: Int
+    var pageIndex: Int = 0
     var layout: ArchiveLayout
     var caption: String?
     var isCover: Bool
@@ -219,7 +220,7 @@ struct ArchiveView: View {
     @State private var archives: [ArchiveSummary] = [
         ArchiveSummary(archiveId: 1, title: "오사카 미식 탐험", theme: .album, primaryColor: "#F197A9", coverImageUrl: nil, startDate: "2026-12-20", endDate: "2026-12-23", itemCount: 42, collaborationStatus: .open, myRole: "OWNER", layoutType: .grid2x2),
         ArchiveSummary(archiveId: 2, title: "제주도 드라이브", theme: .polaroid, primaryColor: "#87553A", coverImageUrl: nil, startDate: "2026-08-15", endDate: "2026-08-18", itemCount: 28, collaborationStatus: .closed, myRole: "EDITOR", layoutType: .grid2x2),
-        ArchiveSummary(archiveId: 3, title: "빈 스크랩북", theme: .scrapbook, primaryColor: "#B88F66", coverImageUrl: nil, startDate: nil, endDate: nil, itemCount: 0, collaborationStatus: .none, myRole: "OWNER", layoutType: .grid2x2)
+        ArchiveSummary(archiveId: 3, title: "나만의 스크랩북", theme: .scrapbook, primaryColor: "#B88F66", coverImageUrl: nil, startDate: nil, endDate: nil, itemCount: 0, collaborationStatus: .none, myRole: "OWNER", layoutType: .grid2x2)
     ]
     
     @State private var shelfScene: ArchiveShelfScene? = nil
@@ -314,40 +315,24 @@ struct ArchiveDetailView: View {
     var onDelete: () -> Void
     
     @State private var items: [ArchiveItem] = [
-        ArchiveItem(itemId: 101, sortOrder: 1, layout: ArchiveLayout(x: 0.3, y: 0.3, width: 0.4, height: 0.25, rotation: -5), caption: "오사카 성 앞에서", isCover: true),
-        ArchiveItem(itemId: 102, sortOrder: 2, layout: ArchiveLayout(x: 0.7, y: 0.5, width: 0.4, height: 0.25, rotation: 8), caption: "도톤보리 야경", isCover: false),
-        ArchiveItem(itemId: 103, sortOrder: 3, layout: ArchiveLayout(x: 0.5, y: 0.7, width: 0.4, height: 0.25, rotation: -2), caption: "타코야키 맛집", isCover: false),
-        ArchiveItem(itemId: 104, sortOrder: 4, layout: ArchiveLayout(x: 0.2, y: 0.8, width: 0.4, height: 0.25, rotation: 5), caption: "규카츠", isCover: false),
-        ArchiveItem(itemId: 105, sortOrder: 5, layout: ArchiveLayout(x: 0.5, y: 0.5, width: 0.4, height: 0.25, rotation: 0), caption: "유니버셜 스튜디오", isCover: false)
+        ArchiveItem(itemId: 101, sortOrder: 1, pageIndex: 0, layout: ArchiveLayout(x: 0.35, y: 0.35, width: 0.4, height: 0.25, rotation: -5), caption: "추억의 시작", isCover: true),
+        ArchiveItem(itemId: 102, sortOrder: 2, pageIndex: 0, layout: ArchiveLayout(x: 0.65, y: 0.65, width: 0.35, height: 0.22, rotation: 10), caption: "즐거운 한때", isCover: false)
     ]
     
     @State private var isEditing = false
     @State private var showingDeleteAlert = false
     @State private var selectedPhotoItem: PhotosPickerItem? = nil
-    
     @State private var enlargedItem: ArchiveItem? = nil
+    
+    @State private var scrapbookPageCount: Int = 1
+    @State private var currentScrapbookPage: Int = 0
     
     var body: some View {
         ZStack {
             Color(hex: archive.primaryColor ?? "#EFEFEF").ignoresSafeArea()
             
-            Group {
-                switch archive.theme {
-                case .polaroid:
-                    PolaroidThemeView(items: $items, isEditing: $isEditing, enlargedItem: $enlargedItem) { clickedItem in
-                        if !isEditing { enlargedItem = clickedItem }
-                    }
-                case .album:
-                    AlbumThemeView(items: $items, layoutType: archive.layoutType, isEditing: $isEditing, enlargedItem: $enlargedItem) { clickedItem in
-                        if !isEditing { enlargedItem = clickedItem }
-                    }
-                case .scrapbook:
-                    ScrapbookThemeView(items: $items, isEditing: $isEditing)
-                }
-            }
-            .padding(.top, 1)
-            
-            VStack {
+            VStack(spacing: 0) {
+                // 🌟 상단 여백 및 편집 버튼 영역 (좌우 여백 20pt 완벽 대칭)
                 HStack {
                     if isEditing {
                         Button(action: { showingDeleteAlert = true }) {
@@ -359,14 +344,14 @@ struct ArchiveDetailView: View {
                                 .offset(y: -1)
                                 .background(JellyButtonBackground(mainColor: Color.red.opacity(0.15), subColor: Color.white.opacity(0.9)))
                         }
-                        .padding(.leading, 24)
+                        .padding(.leading, 20)
                     }
                     
                     Spacer()
                     
                     Button(action: {
                         if isEditing {
-                            print("💾 ARCH-07 일괄 저장 통신 준비 완료!")
+                            print("💾 ARCH-07 스크랩북 레이아웃 일괄 저장 통신 준비 완료!")
                         }
                         isEditing.toggle()
                     }) {
@@ -378,19 +363,42 @@ struct ArchiveDetailView: View {
                             .offset(y: -1)
                             .background(JellyButtonBackground(mainColor: Color.gray.opacity(0.2), subColor: Color.white.opacity(0.95)))
                     }
-                    .padding(.trailing, 24)
+                    .padding(.trailing, 20)
                 }
-                .padding(.top, 20)
+                .padding(.top, 12)
+                .padding(.bottom, 8)
                 
+                // 🌟 책 형식 컨테이너 (하단 탭바와 겹치지 않도록 높이와 여백을 넉넉하게 최적화)
+                Group {
+                    switch archive.theme {
+                    case .polaroid:
+                        PolaroidThemeView(items: $items, isEditing: $isEditing, enlargedItem: $enlargedItem) { clickedItem in
+                            if !isEditing { enlargedItem = clickedItem }
+                        }
+                    case .album:
+                        AlbumThemeView(items: $items, layoutType: archive.layoutType, isEditing: $isEditing, enlargedItem: $enlargedItem) { clickedItem in
+                            if !isEditing { enlargedItem = clickedItem }
+                        }
+                    case .scrapbook:
+                        ScrapbookThemeView(items: $items, isEditing: $isEditing, pageCount: $scrapbookPageCount, currentPage: $currentScrapbookPage, enlargedItem: $enlargedItem) { clickedItem in
+                            if !isEditing { enlargedItem = clickedItem }
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, isEditing ? 130 : 90) // 🌟 편집 모드일 때 하단 추가 버튼 공간 확보
+            }
+            
+            // 🌟 하단 사진 추가 / 페이지 추가 버튼 영역 (잘림 방지 및 위치 상향 조정)
+            VStack {
                 Spacer()
-                
                 if isEditing {
-                    HStack {
+                    HStack(spacing: 12) {
                         PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
                             Text("+ 사진 추가")
                                 .font(.system(size: 15, weight: .bold))
                                 .foregroundColor(.egFunctional)
-                                .padding(.horizontal, 20)
+                                .padding(.horizontal, 18)
                                 .padding(.vertical, 12)
                                 .offset(y: -1)
                                 .background(JellyButtonBackground())
@@ -403,7 +411,8 @@ struct ArchiveDetailView: View {
                                     let newItemEntity = ArchiveItem(
                                         itemId: Int64.random(in: 200...999),
                                         sortOrder: items.count + 1,
-                                        layout: ArchiveLayout(x: 0.5, y: 0.5, width: 0.4, height: 0.25, rotation: Double.random(in: -10...10)),
+                                        pageIndex: currentScrapbookPage,
+                                        layout: ArchiveLayout(x: 0.5, y: 0.5, width: 0.4, height: 0.25, rotation: 0),
                                         caption: "새 추억",
                                         isCover: false,
                                         imageData: data,
@@ -414,10 +423,26 @@ struct ArchiveDetailView: View {
                                 }
                             }
                         }
+                        
+                        if archive.theme == .scrapbook {
+                            Button(action: {
+                                scrapbookPageCount += 1
+                                currentScrapbookPage = scrapbookPageCount - 1
+                            }) {
+                                Text("+ 페이지 추가")
+                                    .font(.system(size: 15, weight: .bold))
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 18)
+                                    .padding(.vertical, 12)
+                                    .offset(y: -1)
+                                    .background(JellyButtonBackground(mainColor: Color.egMain, subColor: Color.egFunctional))
+                            }
+                        }
+                        
                         Spacer()
                     }
                     .padding(.horizontal, 24)
-                    .padding(.bottom, 60)
+                    .padding(.bottom, 95) // 🌟 하단 탭바 바로 위쪽에 안전하게 위치하도록 여백 조정
                 }
             }
             
@@ -475,7 +500,161 @@ struct ArchiveDetailView: View {
     }
 }
 
-// MARK: - 📖 앨범 테마 뷰 (수동 계산 레이아웃으로 상하좌우 간격 픽셀 단위까지 일치)
+// MARK: - ✂️ 스크랩북 테마 뷰 (페이지 페이징 시스템)
+struct ScrapbookThemeView: View {
+    @Binding var items: [ArchiveItem]
+    @Binding var isEditing: Bool
+    @Binding var pageCount: Int
+    @Binding var currentPage: Int
+    @Binding var enlargedItem: ArchiveItem?
+    var onCardTapped: (ArchiveItem) -> Void
+    
+    var body: some View {
+        ZStack {
+            TabView(selection: $currentPage) {
+                ForEach(0..<pageCount, id: \.self) { pageIndex in
+                    ScrapbookPageView(
+                        items: $items,
+                        pageIndex: pageIndex,
+                        isEditing: isEditing,
+                        onCardTapped: onCardTapped
+                    )
+                    .tag(pageIndex)
+                }
+            }
+            .tabViewStyle(PageTabViewStyle(indexDisplayMode: .always))
+            .disabled(enlargedItem != nil)
+        }
+    }
+}
+
+// MARK: - 📄 스크랩북 단일 페이지 캔버스
+struct ScrapbookPageView: View {
+    @Binding var items: [ArchiveItem]
+    let pageIndex: Int
+    let isEditing: Bool
+    var onCardTapped: (ArchiveItem) -> Void
+    
+    var body: some View {
+        GeometryReader { geo in
+            ZStack {
+                Color.white.opacity(0.3)
+                    .cornerRadius(16)
+                
+                ForEach($items.filter { $0.wrappedValue.pageIndex == pageIndex }) { $item in
+                    ScrapbookItemView(item: $item, canvasSize: geo.size, isEditing: isEditing, onTap: {
+                        onCardTapped($item.wrappedValue)
+                    })
+                }
+            }
+        }
+    }
+}
+
+// MARK: - 🖼️ 개별 스크랩북 사진 아이템
+struct ScrapbookItemView: View {
+    @Binding var item: ArchiveItem
+    let canvasSize: CGSize
+    let isEditing: Bool
+    var onTap: () -> Void
+    
+    @State private var dragOffset: CGSize = .zero
+    @State private var magnificationScale: CGFloat = 1.0
+    @State private var rotationAngle: Angle = .zero
+    
+    var body: some View {
+        let safeCanvasWidth = canvasSize.width > 0 ? canvasSize.width : 300
+        let safeCanvasHeight = canvasSize.height > 0 ? canvasSize.height : 500
+        
+        let baseWidth: CGFloat = safeCanvasWidth * 0.4
+        let currentWidth = baseWidth * CGFloat(item.layout.width) * magnificationScale
+        
+        return VStack(spacing: 4) {
+            Group {
+                if let uiImage = item.uiImage {
+                    Image(uiImage: uiImage)
+                        .resizable()
+                        .scaledToFit()
+                } else {
+                    Rectangle()
+                        .fill(item.mockColor.opacity(0.8))
+                        .frame(width: currentWidth, height: currentWidth * 0.75)
+                        .overlay(Image(systemName: "photo").foregroundColor(.white.opacity(0.6)))
+                }
+            }
+            .frame(width: currentWidth)
+            .cornerRadius(8)
+            .clipped()
+            
+            if isEditing {
+                TextField("문구", text: Binding(
+                    get: { item.caption ?? "" },
+                    set: { item.caption = sanitizeInput($0) }
+                ))
+                .font(.system(size: 10, weight: .bold))
+                .multilineTextAlignment(.center)
+                .textFieldStyle(RoundedBorderTextFieldStyle())
+                .frame(width: currentWidth)
+            } else if let caption = item.caption, !caption.isEmpty {
+                Text(caption)
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(.black.opacity(0.8))
+                    .lineLimit(1)
+            }
+        }
+        .padding(6)
+        .background(Color.white)
+        .cornerRadius(12)
+        .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
+        .rotationEffect(.degrees(item.layout.rotation) + rotationAngle)
+        .position(
+            x: (safeCanvasWidth * CGFloat(item.layout.x)).isFinite ? (safeCanvasWidth * CGFloat(item.layout.x)) + dragOffset.width : 150,
+            y: (safeCanvasHeight * CGFloat(item.layout.y)).isFinite ? (safeCanvasHeight * CGFloat(item.layout.y)) + dragOffset.height : 250
+        )
+        .onTapGesture {
+            onTap()
+        }
+        .simultaneousGesture(
+            isEditing ?
+            DragGesture().onChanged { value in
+                dragOffset = value.translation
+            }.onEnded { value in
+                let newX = (safeCanvasWidth * CGFloat(item.layout.x) + value.translation.width) / safeCanvasWidth
+                let newY = (safeCanvasHeight * CGFloat(item.layout.y) + value.translation.height) / safeCanvasHeight
+                if newX.isFinite && newY.isFinite {
+                    item.layout.x = Double(newX)
+                    item.layout.y = Double(newY)
+                }
+                dragOffset = .zero
+            } : nil
+        )
+        .simultaneousGesture(
+            isEditing ?
+            MagnificationGesture().onChanged { scale in
+                magnificationScale = scale
+            }.onEnded { scale in
+                let newWidth = Double(item.layout.width) * Double(scale)
+                if newWidth.isFinite {
+                    item.layout.width = min(max(0.15, newWidth), 1.5)
+                }
+                magnificationScale = 1.0
+            } : nil
+        )
+        .simultaneousGesture(
+            isEditing ?
+            RotationGesture().onChanged { angle in
+                rotationAngle = angle
+            }.onEnded { angle in
+                if angle.degrees.isFinite {
+                    item.layout.rotation += angle.degrees
+                }
+                rotationAngle = .zero
+            } : nil
+        )
+    }
+}
+
+// MARK: - 📖 앨범 테마 뷰 (기존 유지)
 struct AlbumThemeView: View {
     @Binding var items: [ArchiveItem]
     let layoutType: AlbumLayoutType
@@ -483,13 +662,10 @@ struct AlbumThemeView: View {
     @Binding var enlargedItem: ArchiveItem?
     var onCardTapped: (ArchiveItem) -> Void
     
-    let spacing: CGFloat = 20
-    let horizontalPadding: CGFloat = 24
-    
     var pageChunks: [[ArchiveItem]] {
         let pageSize = layoutType.rawValue
         var chunks: [[ArchiveItem]] = []
-        for index in stride(from: min(items.count, 0), to: items.count, by: pageSize) {
+        for index in stride(from: 0, to: items.count, by: pageSize) {
             let chunk = Array(items[index..<min(index + pageSize, items.count)])
             chunks.append(chunk)
         }
@@ -508,23 +684,19 @@ struct AlbumThemeView: View {
                     ForEach(0..<pageChunks.count, id: \.self) { pageIndex in
                         GeometryReader { pageGeo in
                             let totalWidth = pageGeo.size.width
-                            let availableWidth = totalWidth - (horizontalPadding * 2) - spacing
+                            let availableWidth = totalWidth - 48 - 20
                             let cellWidth = availableWidth / 2
-                            
-                            // 🌟 가로폭 기반 정사각형 크기에 하단 텍스트 영역(약 36pt)을 더해 카드 전체 높이 설정
                             let totalCardHeight = cellWidth + 36
                             let numRows = layoutType.rawValue == 4 ? 2 : 3
-                            let totalGridHeight = (totalCardHeight * CGFloat(numRows)) + (spacing * CGFloat(numRows - 1))
-                            
-                            // 🌟 상하 간격과 좌우 간격을 완전히 동일하게 맞추기 위해 상단 여백을 동적으로 계산
-                            let topMargin = max(40, (pageGeo.size.height - totalGridHeight) / 2 - 30)
+                            let totalGridHeight = (totalCardHeight * CGFloat(numRows)) + (20 * CGFloat(numRows - 1))
+                            let topMargin = max(20, (pageGeo.size.height - totalGridHeight) / 2 - 20)
                             
                             VStack(alignment: .leading, spacing: 0) {
                                 Spacer().frame(height: topMargin)
                                 
                                 LazyVGrid(
-                                    columns: [GridItem(.fixed(cellWidth), spacing: spacing), GridItem(.fixed(cellWidth), spacing: spacing)],
-                                    spacing: spacing
+                                    columns: [GridItem(.fixed(cellWidth), spacing: 20), GridItem(.fixed(cellWidth), spacing: 20)],
+                                    spacing: 20
                                 ) {
                                     ForEach($items.filter { item in
                                         pageChunks[pageIndex].contains(where: { $0.id == item.id })
@@ -534,7 +706,7 @@ struct AlbumThemeView: View {
                                         })
                                     }
                                 }
-                                .padding(.horizontal, horizontalPadding)
+                                .padding(.horizontal, 24)
                                 
                                 Spacer()
                             }
@@ -550,7 +722,6 @@ struct AlbumThemeView: View {
     }
 }
 
-// MARK: - 🖼️ 앨범 그리드 셀 컴포넌트 (내부 사진 모서리를 폴라로이드처럼 부드럽게 둥글게 처리)
 struct AlbumCellView: View {
     @Binding var item: ArchiveItem
     let cellWidth: CGFloat
@@ -559,7 +730,6 @@ struct AlbumCellView: View {
     
     var body: some View {
         VStack(spacing: 6) {
-            // 🌟 내부 사진 영역: 1:1 정사각형 고정 및 모서리 곡률(12pt) 적용
             Group {
                 if let uiImage = item.uiImage {
                     Image(uiImage: uiImage)
@@ -572,7 +742,7 @@ struct AlbumCellView: View {
                 }
             }
             .frame(width: cellWidth - 16, height: cellWidth - 16)
-            .cornerRadius(12)
+            .cornerRadius(10)
             .clipped()
             
             if isEditing {
@@ -607,7 +777,7 @@ struct AlbumCellView: View {
     }
 }
 
-// MARK: - 📸 폴라로이드 테마 뷰
+// MARK: - 📸 폴라로이드 테마 뷰 (기존 유지)
 struct PolaroidThemeView: View {
     @Binding var items: [ArchiveItem]
     @Binding var isEditing: Bool
@@ -627,7 +797,7 @@ struct PolaroidThemeView: View {
         GeometryReader { geo in
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 40) {
-                    Spacer().frame(height: 60)
+                    Spacer().frame(height: 40)
                     
                     if items.isEmpty {
                         Text("아직 걸려있는 사진이 없어요!")
@@ -737,117 +907,6 @@ struct HangingPolaroidCard: View {
     }
 }
 
-// MARK: - ✂️ 스크랩북 테마 뷰
-struct ScrapbookThemeView: View {
-    @Binding var items: [ArchiveItem]
-    @Binding var isEditing: Bool
-    @State private var canvasScene: ArchiveCanvasScene? = nil
-    
-    var body: some View {
-        GeometryReader { geo in
-            if let scene = canvasScene {
-                SpriteView(scene: scene)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color.white.opacity(0.3))
-                    .cornerRadius(16)
-                    .padding()
-            } else {
-                Color.clear.onAppear {
-                    let newScene = ArchiveCanvasScene(size: geo.size)
-                    newScene.scaleMode = .resizeFill
-                    newScene.items = items
-                    newScene.getIsEditing = { isEditing }
-                    newScene.onItemMoved = { id, newX, newY in
-                        if let index = items.firstIndex(where: { $0.itemId == id }) {
-                            items[index].layout.x = newX
-                            items[index].layout.y = newY
-                        }
-                    }
-                    canvasScene = newScene
-                }
-            }
-        }
-        .onChange(of: isEditing) { _, editing in
-            canvasScene?.getIsEditing = { editing }
-        }
-        .onChange(of: items.count) { _, _ in
-            canvasScene?.items = items
-            canvasScene?.redrawItems()
-        }
-    }
-}
-
-class ArchiveCanvasScene: SKScene {
-    var items: [ArchiveItem] = [] { didSet { if size.width > 50 { redrawItems() } } }
-    var onItemMoved: ((Int64, Double, Double) -> Void)?
-    var getIsEditing: (() -> Bool)?
-    var selectedNode: SKNode?
-    
-    override func didMove(to view: SKView) { self.backgroundColor = .clear }
-    
-    override func didChangeSize(_ oldSize: CGSize) {
-        super.didChangeSize(oldSize)
-        guard size.width > 50, size.height > 50 else { return }
-        redrawItems()
-    }
-    
-    func redrawItems() {
-        self.removeAllChildren()
-        for item in items {
-            let pixelX = CGFloat(item.layout.x) * size.width
-            let pixelY = CGFloat(1.0 - item.layout.y) * size.height
-            let pixelWidth = CGFloat(item.layout.width) * size.width
-            let pixelHeight = CGFloat(item.layout.width) * size.width
-            
-            let photoNode = SKShapeNode(rectOf: CGSize(width: pixelWidth, height: pixelHeight), cornerRadius: 8)
-            photoNode.fillColor = .white
-            photoNode.strokeColor = SKColor(hex: "#CCCCCC")
-            photoNode.lineWidth = 2
-            photoNode.position = CGPoint(x: pixelX, y: pixelY)
-            photoNode.zRotation = CGFloat(item.layout.rotation * .pi / 180)
-            photoNode.zPosition = CGFloat(item.sortOrder)
-            photoNode.name = "item_\(item.itemId)"
-            
-            let innerImage = SKShapeNode(rectOf: CGSize(width: pixelWidth - 10, height: pixelHeight - 30))
-            innerImage.fillColor = SKColor(hex: "#A2C3E8")
-            innerImage.strokeColor = .clear
-            innerImage.position = CGPoint(x: 0, y: 10)
-            innerImage.name = photoNode.name
-            photoNode.addChild(innerImage)
-            addChild(photoNode)
-        }
-    }
-    
-    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard getIsEditing?() == true, let touch = touches.first else { return }
-        let location = touch.location(in: self)
-        let touchedNodes = nodes(at: location).filter { $0.name?.hasPrefix("item_") == true }
-        if let topNode = touchedNodes.max(by: { $0.zPosition < $1.zPosition }) {
-            selectedNode = topNode.parent == self ? topNode : topNode.parent
-            selectedNode?.run(SKAction.scale(to: 1.05, duration: 0.1))
-            selectedNode?.zPosition = 999
-        }
-    }
-    
-    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard getIsEditing?() == true, let touch = touches.first, let node = selectedNode else { return }
-        node.position = touch.location(in: self)
-    }
-    
-    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard getIsEditing?() == true, let node = selectedNode else { return }
-        node.run(SKAction.scale(to: 1.0, duration: 0.1))
-        if let name = node.name, let id = Int64(name.replacingOccurrences(of: "item_", with: "")), let index = items.firstIndex(where: { $0.itemId == id }) {
-            let ratioX = Double(node.position.x / size.width)
-            let ratioY = Double(1.0 - (node.position.y / size.height))
-            items[index].layout.x = ratioX
-            items[index].layout.y = ratioY
-            onItemMoved?(id, ratioX, ratioY)
-        }
-        selectedNode = nil
-    }
-}
-
 // MARK: - 6. 아카이브 생성 폼
 struct CreateAlbumView: View {
     @Environment(\.dismiss) var dismiss
@@ -923,7 +982,7 @@ struct CreateAlbumView: View {
                     }) {
                         Text("만들기")
                             .font(.system(size: 16, weight: .bold))
-                            .foregroundColor(title.isEmpty ? .egFunctional : .egFunctional)
+                            .foregroundColor(title.isEmpty ? .gray : .egFunctional)
                     }
                     .disabled(title.isEmpty)
                 }
