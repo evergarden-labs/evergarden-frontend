@@ -51,6 +51,8 @@ struct ArchiveItem: Identifiable {
     var layout: ArchiveLayout
     var caption: String?
     var isCover: Bool
+    
+    let mockColor: Color = [Color.red, Color.blue, Color.green, Color.orange, Color.purple].randomElement()!
 }
 
 // MARK: - 🌟 젤리 버튼 공통 배경
@@ -77,7 +79,9 @@ struct JellyButtonBackground: View {
 
 // MARK: - 2. SpriteKit: 책장 목록 씬
 class ArchiveShelfScene: SKScene {
-    var archives: [ArchiveSummary] = []
+    var archives: [ArchiveSummary] = [] {
+        didSet { if size.width > 50 { redrawShelves() } }
+    }
     var onArchiveSelected: ((ArchiveSummary) -> Void)?
     
     let camNode = SKCameraNode()
@@ -94,11 +98,21 @@ class ArchiveShelfScene: SKScene {
         drawShelves()
     }
     
+    override func didChangeSize(_ oldSize: CGSize) {
+        super.didChangeSize(oldSize)
+        guard size.width > 50, size.height > 50 else { return }
+        camNode.position = CGPoint(x: size.width / 2, y: size.height / 2)
+        redrawShelves()
+    }
+    
+    func redrawShelves() {
+        let nodesToRemove = children.filter { $0 != camNode }
+        removeChildren(in: nodesToRemove)
+        drawShelves()
+    }
+    
     func drawShelves() {
-        guard size.width > 50 else { return } // 🌟 0초 로딩 시점의 렌더링 방지
-        
-        // 기존 선반 깔끔하게 지우기 (카메라 제외)
-        children.forEach { if $0 != camNode { $0.removeFromParent() } }
+        guard size.width > 50 else { return }
         
         let shelfHeight: CGFloat = 180
         contentHeight = CGFloat(archives.count) * shelfHeight + 300
@@ -134,7 +148,7 @@ class ArchiveShelfScene: SKScene {
     
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let touch = touches.first, let view = self.view else { return }
-        previousTouchLocation = touch.location(in: view) // 🌟 씬 내부 좌표가 아닌 절대 화면 좌표 사용
+        previousTouchLocation = touch.location(in: view)
     }
     
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -144,7 +158,6 @@ class ArchiveShelfScene: SKScene {
         camNode.position.y += dy
         previousTouchLocation = currentLocation
         
-        // 🌟 카메라 무한 이탈(Infinity) 버그 완벽 방어!
         let minY = size.height / 2
         let maxY = max(minY, contentHeight - size.height / 2)
         if camNode.position.y > maxY { camNode.position.y = maxY }
@@ -169,82 +182,6 @@ class ArchiveShelfScene: SKScene {
     }
 }
 
-// MARK: - 3. SpriteKit: 자유 배치 캔버스 씬
-class ArchiveCanvasScene: SKScene {
-    var items: [ArchiveItem] = []
-    var onItemMoved: ((Int64, Double, Double) -> Void)?
-    var getIsEditing: (() -> Bool)?
-    var selectedNode: SKNode?
-    
-    override func didMove(to view: SKView) {
-        self.backgroundColor = SKColor(hex: "#F4E3C5")
-        drawItems()
-    }
-    
-    func drawItems() {
-        guard size.width > 50 else { return } // 🌟 크기 축소 버그 방어
-        self.removeAllChildren()
-        
-        for item in items {
-            let pixelX = CGFloat(item.layout.x) * size.width
-            let pixelY = CGFloat(1.0 - item.layout.y) * size.height
-            let pixelWidth = CGFloat(item.layout.width) * size.width
-            let pixelHeight = CGFloat(item.layout.height) * size.width
-            
-            let photoNode = SKShapeNode(rectOf: CGSize(width: pixelWidth, height: pixelHeight), cornerRadius: 8)
-            photoNode.fillColor = .white
-            photoNode.strokeColor = SKColor(hex: "#CCCCCC")
-            photoNode.lineWidth = 2
-            
-            photoNode.position = CGPoint(x: pixelX, y: pixelY)
-            photoNode.zRotation = CGFloat(item.layout.rotation * .pi / 180)
-            photoNode.zPosition = CGFloat(item.sortOrder)
-            photoNode.name = "item_\(item.itemId)"
-            
-            let innerImage = SKShapeNode(rectOf: CGSize(width: pixelWidth - 10, height: pixelHeight - 30))
-            innerImage.fillColor = SKColor(hex: "#A2C3E8")
-            innerImage.strokeColor = .clear
-            innerImage.position = CGPoint(x: 0, y: 10)
-            innerImage.name = photoNode.name
-            photoNode.addChild(innerImage)
-            
-            addChild(photoNode)
-        }
-    }
-    
-    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard getIsEditing?() == true, let touch = touches.first else { return }
-        let location = touch.location(in: self)
-        
-        let touchedNodes = nodes(at: location).filter { $0.name?.hasPrefix("item_") == true }
-        if let topNode = touchedNodes.max(by: { $0.zPosition < $1.zPosition }) {
-            selectedNode = topNode.parent == self ? topNode : topNode.parent
-            selectedNode?.run(SKAction.scale(to: 1.05, duration: 0.1))
-            selectedNode?.zPosition = 999
-        }
-    }
-    
-    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard getIsEditing?() == true, let touch = touches.first, let node = selectedNode else { return }
-        node.position = touch.location(in: self)
-    }
-    
-    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard getIsEditing?() == true, let node = selectedNode else { return }
-        node.run(SKAction.scale(to: 1.0, duration: 0.1))
-        
-        if let name = node.name {
-            let idString = name.replacingOccurrences(of: "item_", with: "")
-            if let id = Int64(idString) {
-                let ratioX = Double(node.position.x / size.width)
-                let ratioY = Double(1.0 - (node.position.y / size.height))
-                onItemMoved?(id, ratioX, ratioY)
-            }
-        }
-        selectedNode = nil
-    }
-}
-
 // MARK: - 4. SwiftUI 래퍼 뷰
 struct ArchiveView: View {
     @State private var isShowingCreateAlbum = false
@@ -256,7 +193,6 @@ struct ArchiveView: View {
         ArchiveSummary(archiveId: 3, title: "빈 스크랩북", theme: .scrapbook, primaryColor: "#B88F66", coverImageUrl: nil, startDate: nil, endDate: nil, itemCount: 0, collaborationStatus: .none, myRole: "OWNER")
     ]
     
-    // 🌟 씬을 옵셔널로 선언하여 GeometryReader 안에서 크기가 확정되었을 때만 만듭니다!
     @State private var shelfScene: ArchiveShelfScene? = nil
     
     var body: some View {
@@ -265,7 +201,6 @@ struct ArchiveView: View {
                 Color.egBase.ignoresSafeArea()
                 
                 VStack(spacing: 0) {
-                    // 상단 헤더 복구 완!
                     HStack(alignment: .bottom) {
                         Text("나의 아카이브")
                             .font(.system(size: 28, weight: .heavy))
@@ -282,7 +217,6 @@ struct ArchiveView: View {
                     .padding(.bottom, 15)
                     
                     GeometryReader { geo in
-                        // 🌟 화면 사이즈가 확실해졌을 때만 씬을 렌더링
                         if let scene = shelfScene {
                             SpriteView(scene: scene)
                                 .ignoresSafeArea(edges: .bottom)
@@ -300,11 +234,10 @@ struct ArchiveView: View {
                     }
                     .onChange(of: archives) { _, newArchives in
                         shelfScene?.archives = newArchives
-                        shelfScene?.drawShelves()
+                        shelfScene?.redrawShelves()
                     }
                 }
                 
-                // 플로팅 버튼
                 VStack {
                     Spacer()
                     HStack {
@@ -343,58 +276,41 @@ struct ArchiveView: View {
     }
 }
 
-// MARK: - 5. 상세 화면 래퍼
+// MARK: - 5. 아카이브 상세 (테마별 분기)
 struct ArchiveDetailView: View {
     let archive: ArchiveSummary
     var onDelete: () -> Void
     
     @State private var items: [ArchiveItem] = [
-        ArchiveItem(itemId: 101, sortOrder: 1, layout: ArchiveLayout(x: 0.3, y: 0.3, width: 0.4, height: 0.25, rotation: -5), caption: nil, isCover: true),
-        ArchiveItem(itemId: 102, sortOrder: 2, layout: ArchiveLayout(x: 0.7, y: 0.5, width: 0.4, height: 0.25, rotation: 8), caption: nil, isCover: false)
+        ArchiveItem(itemId: 101, sortOrder: 1, layout: ArchiveLayout(x: 0.3, y: 0.3, width: 0.4, height: 0.25, rotation: -5), caption: "바다 뷰", isCover: true),
+        ArchiveItem(itemId: 102, sortOrder: 2, layout: ArchiveLayout(x: 0.7, y: 0.5, width: 0.4, height: 0.25, rotation: 8), caption: "고기국수", isCover: false),
+        ArchiveItem(itemId: 103, sortOrder: 3, layout: ArchiveLayout(x: 0.5, y: 0.7, width: 0.4, height: 0.25, rotation: -2), caption: "야경", isCover: false),
+        ArchiveItem(itemId: 104, sortOrder: 4, layout: ArchiveLayout(x: 0.2, y: 0.8, width: 0.4, height: 0.25, rotation: 5), caption: "카페", isCover: false)
     ]
     
     @State private var isEditing = false
     @State private var showingDeleteAlert = false
     
-    // 🌟 상세 씬도 마찬가지로 크기가 확정된 후에만 만듭니다!
-    @State private var canvasScene: ArchiveCanvasScene? = nil
-    
     var body: some View {
         ZStack {
             Color(hex: archive.primaryColor ?? "#EFEFEF").ignoresSafeArea()
             
-            GeometryReader { geo in
-                if let scene = canvasScene {
-                    SpriteView(scene: scene)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(Color.white.opacity(0.3))
-                        .cornerRadius(16)
-                        .padding()
-                } else {
-                    Color.clear.onAppear {
-                        let newScene = ArchiveCanvasScene(size: geo.size)
-                        newScene.scaleMode = .resizeFill
-                        newScene.items = items
-                        newScene.getIsEditing = { isEditing }
-                        newScene.onItemMoved = { id, newX, newY in
-                            if let index = items.firstIndex(where: { $0.itemId == id }) {
-                                items[index].layout.x = newX
-                                items[index].layout.y = newY
-                            }
-                        }
-                        canvasScene = newScene
-                    }
+            Group {
+                switch archive.theme {
+                case .polaroid:
+                    PolaroidThemeView(items: $items, isEditing: $isEditing)
+                case .scrapbook:
+                    ScrapbookThemeView(items: $items, isEditing: $isEditing)
+                case .album:
+                    VStack {
+                        Text("📖 앨범 테마")
+                            .font(.title)
+                        Text("2x2 페이징 효과는 다음 단계에서 만들게요!")
+                    }.foregroundColor(.egFunctional)
                 }
             }
-            .onChange(of: isEditing) { _, editing in
-                canvasScene?.getIsEditing = { editing }
-            }
-            .onChange(of: items.count) { _, _ in
-                canvasScene?.items = items
-                canvasScene?.drawItems()
-            }
+            .padding(.top, 1)
             
-            // 🌟 앨범 조작 패널 오버레이
             VStack {
                 HStack {
                     if isEditing {
@@ -413,10 +329,7 @@ struct ArchiveDetailView: View {
                     Spacer()
                     
                     Button(action: {
-                        if isEditing {
-                            self.items = canvasScene?.items ?? items
-                            print("💾 배치 저장 완료!")
-                        }
+                        if isEditing { print("💾 변경사항 일괄 저장 완료!") }
                         isEditing.toggle()
                     }) {
                         Text(isEditing ? "완료" : "편집")
@@ -464,12 +377,210 @@ struct ArchiveDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .alert("앨범 삭제", isPresented: $showingDeleteAlert) {
             Button("취소", role: .cancel) { }
-            Button("삭제", role: .destructive) {
-                onDelete()
-            }
+            Button("삭제", role: .destructive) { onDelete() }
         } message: {
             Text("이 아카이브를 정말 삭제할까요?\n(이 작업은 되돌릴 수 없습니다.)")
         }
+    }
+}
+
+// MARK: - 📸 폴라로이드 테마 뷰
+struct PolaroidThemeView: View {
+    @Binding var items: [ArchiveItem]
+    @Binding var isEditing: Bool
+    
+    var chunkedItems: [[ArchiveItem]] {
+        var chunks: [[ArchiveItem]] = []
+        for index in stride(from: 0, to: items.count, by: 3) {
+            let chunk = Array(items[index..<min(index + 3, items.count)])
+            chunks.append(chunk)
+        }
+        return chunks
+    }
+    
+    var body: some View {
+        GeometryReader { geo in
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 40) {
+                    Spacer().frame(height: 60)
+                    
+                    if items.isEmpty {
+                        Text("아직 걸려있는 사진이 없어요!")
+                            .foregroundColor(.gray)
+                            .padding(.top, 100)
+                    } else {
+                        ForEach(0..<chunkedItems.count, id: \.self) { rowIndex in
+                            ZStack(alignment: .top) {
+                                Path { path in
+                                    path.move(to: CGPoint(x: 0, y: 15))
+                                    path.addLine(to: CGPoint(x: geo.size.width, y: 15))
+                                }
+                                .stroke(Color.white.opacity(0.8), style: StrokeStyle(lineWidth: 2, dash: [8, 4]))
+                                
+                                HStack(spacing: 16) {
+                                    ForEach(chunkedItems[rowIndex]) { item in
+                                        HangingPolaroidCard(item: item)
+                                    }
+                                    
+                                    if chunkedItems[rowIndex].count < 3 {
+                                        ForEach(0..<(3 - chunkedItems[rowIndex].count), id: \.self) { _ in
+                                            Spacer().frame(maxWidth: .infinity)
+                                        }
+                                    }
+                                }
+                                .padding(.horizontal, 20)
+                            }
+                        }
+                    }
+                    Spacer().frame(height: 120)
+                }
+            }
+        }
+    }
+}
+
+struct HangingPolaroidCard: View {
+    let item: ArchiveItem
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            Rectangle()
+                .fill(Color(hex: "#C19A6B"))
+                .frame(width: 12, height: 20)
+                .cornerRadius(2)
+                .shadow(color: .black.opacity(0.3), radius: 1, y: 1)
+                .zIndex(1)
+                .offset(y: 10)
+            
+            VStack(spacing: 8) {
+                Rectangle()
+                    .fill(item.mockColor.opacity(0.8))
+                    .aspectRatio(1, contentMode: .fit)
+                    .overlay(Image(systemName: "photo").foregroundColor(.white.opacity(0.6)))
+                
+                Text(item.caption ?? " ")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(.black.opacity(0.8))
+                    .lineLimit(1)
+                    .frame(height: 15)
+            }
+            .padding(8)
+            .background(Color.white)
+            .shadow(color: .black.opacity(0.15), radius: 3, y: 2)
+            .rotationEffect(.degrees(item.layout.rotation > 0 ? 3 : -3))
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
+
+// MARK: - ✂️ 스크랩북 테마 뷰
+struct ScrapbookThemeView: View {
+    @Binding var items: [ArchiveItem]
+    @Binding var isEditing: Bool
+    @State private var canvasScene: ArchiveCanvasScene? = nil
+    
+    var body: some View {
+        GeometryReader { geo in
+            if let scene = canvasScene {
+                SpriteView(scene: scene)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.white.opacity(0.3))
+                    .cornerRadius(16)
+                    .padding()
+            } else {
+                Color.clear.onAppear {
+                    let newScene = ArchiveCanvasScene(size: geo.size)
+                    newScene.scaleMode = .resizeFill
+                    newScene.items = items
+                    newScene.getIsEditing = { isEditing }
+                    newScene.onItemMoved = { id, newX, newY in
+                        if let index = items.firstIndex(where: { $0.itemId == id }) {
+                            items[index].layout.x = newX
+                            items[index].layout.y = newY
+                        }
+                    }
+                    canvasScene = newScene
+                }
+            }
+        }
+        .onChange(of: isEditing) { _, editing in
+            canvasScene?.getIsEditing = { editing }
+        }
+        .onChange(of: items.count) { _, _ in
+            canvasScene?.items = items
+            canvasScene?.redrawItems()
+        }
+    }
+}
+
+class ArchiveCanvasScene: SKScene {
+    var items: [ArchiveItem] = [] { didSet { if size.width > 50 { redrawItems() } } }
+    var onItemMoved: ((Int64, Double, Double) -> Void)?
+    var getIsEditing: (() -> Bool)?
+    var selectedNode: SKNode?
+    
+    override func didMove(to view: SKView) { self.backgroundColor = .clear }
+    
+    override func didChangeSize(_ oldSize: CGSize) {
+        super.didChangeSize(oldSize)
+        guard size.width > 50, size.height > 50 else { return }
+        redrawItems()
+    }
+    
+    func redrawItems() {
+        self.removeAllChildren()
+        for item in items {
+            let pixelX = CGFloat(item.layout.x) * size.width
+            let pixelY = CGFloat(1.0 - item.layout.y) * size.height
+            let pixelWidth = CGFloat(item.layout.width) * size.width
+            let pixelHeight = CGFloat(item.layout.height) * size.width
+            
+            let photoNode = SKShapeNode(rectOf: CGSize(width: pixelWidth, height: pixelHeight), cornerRadius: 8)
+            photoNode.fillColor = .white
+            photoNode.strokeColor = SKColor(hex: "#CCCCCC")
+            photoNode.lineWidth = 2
+            photoNode.position = CGPoint(x: pixelX, y: pixelY)
+            photoNode.zRotation = CGFloat(item.layout.rotation * .pi / 180)
+            photoNode.zPosition = CGFloat(item.sortOrder)
+            photoNode.name = "item_\(item.itemId)"
+            
+            let innerImage = SKShapeNode(rectOf: CGSize(width: pixelWidth - 10, height: pixelHeight - 30))
+            innerImage.fillColor = SKColor(hex: "#A2C3E8")
+            innerImage.strokeColor = .clear
+            innerImage.position = CGPoint(x: 0, y: 10)
+            innerImage.name = photoNode.name
+            photoNode.addChild(innerImage)
+            addChild(photoNode)
+        }
+    }
+    
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard getIsEditing?() == true, let touch = touches.first else { return }
+        let location = touch.location(in: self)
+        let touchedNodes = nodes(at: location).filter { $0.name?.hasPrefix("item_") == true }
+        if let topNode = touchedNodes.max(by: { $0.zPosition < $1.zPosition }) {
+            selectedNode = topNode.parent == self ? topNode : topNode.parent
+            selectedNode?.run(SKAction.scale(to: 1.05, duration: 0.1))
+            selectedNode?.zPosition = 999
+        }
+    }
+    
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard getIsEditing?() == true, let touch = touches.first, let node = selectedNode else { return }
+        node.position = touch.location(in: self)
+    }
+    
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard getIsEditing?() == true, let node = selectedNode else { return }
+        node.run(SKAction.scale(to: 1.0, duration: 0.1))
+        if let name = node.name, let id = Int64(name.replacingOccurrences(of: "item_", with: "")), let index = items.firstIndex(where: { $0.itemId == id }) {
+            let ratioX = Double(node.position.x / size.width)
+            let ratioY = Double(1.0 - (node.position.y / size.height))
+            items[index].layout.x = ratioX
+            items[index].layout.y = ratioY
+            onItemMoved?(id, ratioX, ratioY)
+        }
+        selectedNode = nil
     }
 }
 
@@ -498,6 +609,7 @@ struct CreateAlbumView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("테마 선택")
                             .font(.system(size: 16, weight: .bold))
+                        // 🌟 오타 교정 완료!
                         Picker("테마", selection: $selectedTheme) {
                             ForEach(ArchiveTheme.allCases, id: \.self) { theme in
                                 Text(theme.displayName).tag(theme)
@@ -509,6 +621,7 @@ struct CreateAlbumView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("대표 색상 (Primary Color)")
                             .font(.system(size: 16, weight: .bold))
+                        // 🌟 오타 교정 완료!
                         ColorPicker("아카이브 배경에 쓰일 색상을 골라주세요", selection: $selectedColor)
                             .padding()
                             .background(Color.white)

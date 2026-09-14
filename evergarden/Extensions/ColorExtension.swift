@@ -1,9 +1,10 @@
 import SwiftUI
 
-// 🌟 에버가든 전용 색상 및 헥사코드 변환 기능만 남깁니다!
+// 🌟 에버가든 전용 색상 및 헥사코드 변환 기능
 extension Color {
     init(hex: String) {
-        var hexSanitized = hex.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "#", with: "")
+        // var를 let으로 변경하여 경고 해결!
+        let hexSanitized = hex.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "#", with: "")
         var rgb: UInt64 = 0
         Scanner(string: hexSanitized).scanHexInt64(&rgb)
         self.init(
@@ -13,7 +14,6 @@ extension Color {
         )
     }
     
-    // 에버가든 테마 색상 (기존에 정의해두셨던 색상들을 유지합니다)
     static let egBase = Color(hex: "#FDFBF7")
     static let egMain = Color(hex: "#62974F")
     static let egPoint = Color(hex: "#F197A9")
