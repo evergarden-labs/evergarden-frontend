@@ -33,7 +33,6 @@ struct PlanPlaceItem: Identifiable, Codable, Equatable, Hashable {
     var latitude: Double
     var longitude: Double
     var visitOrder: Int
-    var estimatedCost: Int
     var memo: String
 }
 
@@ -52,7 +51,6 @@ struct TravelPlan: Identifiable, Codable, Equatable, Hashable {
     var startDate: String
     var endDate: String
     var status: PlanStatus
-    var totalBudget: Int
     var schedules: [PlanDaySchedule]
     let createdAt: String
 }
@@ -70,21 +68,20 @@ actor PlanService {
             startDate: "2026-10-03",
             endDate: "2026-10-05",
             status: .planning,
-            totalBudget: 450000,
             schedules: [
                 PlanDaySchedule(
                     dayNumber: 1,
                     dateString: "2026-10-03",
                     places: [
-                        PlanPlaceItem(placeName: "부산역", roadAddress: "부산 동구 중앙대로 206", latitude: 35.1152, longitude: 129.0422, visitOrder: 1, estimatedCost: 60000, memo: "KTX 도착 및 렌터카 수령"),
-                        PlanPlaceItem(placeName: "광안리 해수욕장", roadAddress: "부산 수영구 광안해변로 219", latitude: 35.1532, longitude: 129.1186, visitOrder: 2, estimatedCost: 35000, memo: "오션뷰 카페 및 산책")
+                        PlanPlaceItem(placeName: "부산역", roadAddress: "부산 동구 중앙대로 206", latitude: 35.1152, longitude: 129.0422, visitOrder: 1, memo: "KTX 도착 및 렌터카 수령"),
+                        PlanPlaceItem(placeName: "광안리 해수욕장", roadAddress: "부산 수영구 광안해변로 219", latitude: 35.1532, longitude: 129.1186, visitOrder: 2, memo: "오션뷰 카페 및 산책")
                     ]
                 ),
                 PlanDaySchedule(
                     dayNumber: 2,
                     dateString: "2026-10-04",
                     places: [
-                        PlanPlaceItem(placeName: "해운대 블루라인파크", roadAddress: "부산 해운대구 청사포로 116", latitude: 35.1601, longitude: 129.1664, visitOrder: 1, estimatedCost: 30000, memo: "해변열차 탑승 예약 필수")
+                        PlanPlaceItem(placeName: "해운대 블루라인파크", roadAddress: "부산 해운대구 청사포로 116", latitude: 35.1601, longitude: 129.1664, visitOrder: 1, memo: "해변열차 탑승 예약 필수")
                     ]
                 )
             ],
@@ -182,7 +179,7 @@ struct PlannerView: View {
                             }
                             .padding(.horizontal, 20)
                             .padding(.top, 10)
-                            .padding(.bottom, 95) // 하단 탭바 여백 확보
+                            .padding(.bottom, 95)
                         }
                     }
                 }
@@ -263,13 +260,7 @@ struct PlanCardView: View {
                 Text("총 \(plan.schedules.count)일 일정 · 방문지 \(placeCount)곳")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(Color(hex: "#3D405B").opacity(0.7))
-                
                 Spacer()
-                
-                let costSum = plan.schedules.flatMap { $0.places }.map { $0.estimatedCost }.reduce(0, +)
-                Text("예상 \(costSum.formatted())원")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundColor(Color(hex: "#3D405B"))
             }
         }
         .padding(16)
@@ -279,7 +270,7 @@ struct PlanCardView: View {
     }
 }
 
-// MARK: - 5. 여행 일정 상세 및 동선 편집 뷰 (PlanDetailView - 버튼 가림 완벽 해결)
+// MARK: - 5. 여행 일정 상세 및 동선 편집 뷰 (PlanDetailView - 상단 버튼 분리 적용)
 
 struct PlanDetailView: View {
     @State var plan: TravelPlan
@@ -289,6 +280,8 @@ struct PlanDetailView: View {
     @Environment(\.dismiss) var dismiss
     @State private var selectedDayIndex = 0
     @State private var isShowingAddPlace = false
+    @State private var editingPlace: PlanPlaceItem? = nil
+    @State private var isShowingEditPlan = false
     @State private var showDeleteConfirm = false
     
     var body: some View {
@@ -296,7 +289,7 @@ struct PlanDetailView: View {
             Color(hex: "#F4F1DE").ignoresSafeArea()
             
             VStack(spacing: 0) {
-                // 일자 선택 탭 (Day 1, Day 2 ...)
+                // 일자 선택 탭
                 if !plan.schedules.isEmpty {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
@@ -342,53 +335,55 @@ struct PlanDetailView: View {
                                 .foregroundColor(Color(hex: "#3D405B").opacity(0.6))
                         }
                         Spacer()
-                            .frame(height: 140) // 하단 버튼 공간 확보
+                            .frame(height: 140)
                     } else {
                         List {
                             ForEach(currentSchedule.places) { place in
-                                HStack(alignment: .top, spacing: 12) {
-                                    Text("\(place.visitOrder)")
-                                        .font(.system(size: 12, weight: .heavy))
-                                        .foregroundColor(.white)
-                                        .frame(width: 24, height: 24)
-                                        .background(Circle().fill(Color(hex: "#E07A5F")))
-                                    
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(place.placeName)
-                                            .font(.system(size: 15, weight: .bold))
-                                            .foregroundColor(Color(hex: "#3D405B"))
+                                Button(action: {
+                                    self.editingPlace = place
+                                }) {
+                                    HStack(alignment: .top, spacing: 12) {
+                                        Text("\(place.visitOrder)")
+                                            .font(.system(size: 12, weight: .heavy))
+                                            .foregroundColor(.white)
+                                            .frame(width: 24, height: 24)
+                                            .background(Circle().fill(Color(hex: "#E07A5F")))
                                         
-                                        if let addr = place.roadAddress, !addr.isEmpty {
-                                            Text(addr)
-                                                .font(.system(size: 11))
-                                                .foregroundColor(.gray)
-                                                .lineLimit(1)
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            Text(place.placeName)
+                                                .font(.system(size: 15, weight: .bold))
+                                                .foregroundColor(Color(hex: "#3D405B"))
+                                            
+                                            if let addr = place.roadAddress, !addr.isEmpty {
+                                                Text(addr)
+                                                    .font(.system(size: 11))
+                                                    .foregroundColor(.gray)
+                                                    .lineLimit(1)
+                                            }
+                                            
+                                            if !place.memo.isEmpty {
+                                                Text(place.memo)
+                                                    .font(.system(size: 12))
+                                                    .foregroundColor(Color(hex: "#3D405B").opacity(0.8))
+                                                    .padding(6)
+                                                    .background(Color(hex: "#F4F1DE"))
+                                                    .cornerRadius(6)
+                                            }
                                         }
                                         
-                                        if !place.memo.isEmpty {
-                                            Text(place.memo)
-                                                .font(.system(size: 12))
-                                                .foregroundColor(Color(hex: "#3D405B").opacity(0.8))
-                                                .padding(6)
-                                                .background(Color(hex: "#F4F1DE"))
-                                                .cornerRadius(6)
-                                        }
+                                        Spacer()
+                                        
+                                        Image(systemName: "pencil.circle")
+                                            .font(.system(size: 18))
+                                            .foregroundColor(Color(hex: "#3D405B").opacity(0.4))
                                     }
-                                    
-                                    Spacer()
-                                    
-                                    if place.estimatedCost > 0 {
-                                        Text("\(place.estimatedCost.formatted())원")
-                                            .font(.system(size: 13, weight: .bold))
-                                            .foregroundColor(Color(hex: "#81B29A"))
-                                    }
+                                    .padding(.vertical, 4)
                                 }
-                                .padding(.vertical, 4)
+                                .buttonStyle(.plain)
                             }
                             .onDelete(perform: deletePlace)
                             .onMove(perform: movePlace)
                             
-                            // 마지막 셀 아래 여백(버튼에 가려지지 않게)
                             Color.clear
                                 .frame(height: 120)
                                 .listRowBackground(Color.clear)
@@ -399,7 +394,7 @@ struct PlanDetailView: View {
                 }
             }
             
-            // 🌟 하단 플로팅 버튼: 탭바(약 70~80pt) 위로 완벽하게 올라오도록 bottom 패딩 80 적용
+            // 하단 플로팅 장소 추가 버튼
             VStack(spacing: 0) {
                 Button(action: { isShowingAddPlace = true }) {
                     HStack(spacing: 6) {
@@ -416,7 +411,7 @@ struct PlanDetailView: View {
                     .shadow(color: Color.black.opacity(0.18), radius: 8, x: 0, y: 4)
                 }
                 .padding(.horizontal, 20)
-                .padding(.bottom, 80) // 🌟 탭바 위로 넉넉하게 띄움
+                .padding(.bottom, 80)
             }
             .background(
                 LinearGradient(
@@ -428,12 +423,32 @@ struct PlanDetailView: View {
         }
         .navigationTitle(plan.title)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.hidden, for: .tabBar) // 🌟 시스템 탭바 사용 시 숨김 처리
+        .toolbar(.hidden, for: .tabBar)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                Button(action: { showDeleteConfirm = true }) {
-                    Image(systemName: "trash")
-                        .foregroundColor(.red)
+                // 🌟 [핵심 개선] 수정 버튼과 삭제 버튼을 시각적으로 완전히 독립된 원형 버튼으로 분리
+                HStack(spacing: 10) {
+                    // 1. 계획 정보 수정 버튼 (연필 아이콘 + 원형 배경)
+                    Button(action: { isShowingEditPlan = true }) {
+                        Image(systemName: "square.and.pencil")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundColor(Color(hex: "#3D405B"))
+                            .frame(width: 36, height: 36)
+                            .background(Circle().fill(Color.white))
+                            .shadow(color: Color.black.opacity(0.08), radius: 3, x: 0, y: 1)
+                    }
+                    .accessibilityLabel("계획 수정")
+                    
+                    // 2. 계획 삭제 버튼 (휴지통 아이콘 + 독립 원형 배경)
+                    Button(action: { showDeleteConfirm = true }) {
+                        Image(systemName: "trash")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundColor(Color(hex: "#E07A5F"))
+                            .frame(width: 36, height: 36)
+                            .background(Circle().fill(Color.white))
+                            .shadow(color: Color.black.opacity(0.08), radius: 3, x: 0, y: 1)
+                    }
+                    .accessibilityLabel("계획 삭제")
                 }
             }
         }
@@ -444,16 +459,33 @@ struct PlanDetailView: View {
                 dismiss()
             }
         } message: {
-            Text("이 여행 일정을 전체 삭제하시겠습니까?")
+            Text("이 여행 일정을 전체 삭제하시겠습니까?\n등록된 모든 일자와 장소 정보가 삭제됩니다.")
         }
         .sheet(isPresented: $isShowingAddPlace) {
-            AddPlaceSheetView { newPlace in
+            PlaceFormSheetView(mode: .create) { newPlace in
                 var updatedPlaces = plan.schedules[selectedDayIndex].places
                 var placeToAdd = newPlace
                 placeToAdd.visitOrder = updatedPlaces.count + 1
                 updatedPlaces.append(placeToAdd)
                 plan.schedules[selectedDayIndex].places = updatedPlaces
                 onUpdate(plan)
+            }
+        }
+        .sheet(item: $editingPlace) { placeToEdit in
+            PlaceFormSheetView(mode: .edit(placeToEdit)) { updatedPlace in
+                if let pIdx = plan.schedules[selectedDayIndex].places.firstIndex(where: { $0.id == updatedPlace.id }) {
+                    plan.schedules[selectedDayIndex].places[pIdx] = updatedPlace
+                    onUpdate(plan)
+                }
+            }
+        }
+        .sheet(isPresented: $isShowingEditPlan) {
+            EditPlanInfoSheetView(plan: plan) { updatedPlan in
+                self.plan = updatedPlan
+                if selectedDayIndex >= self.plan.schedules.count {
+                    selectedDayIndex = max(0, self.plan.schedules.count - 1)
+                }
+                onUpdate(self.plan)
             }
         }
     }
@@ -603,7 +635,6 @@ struct CreatePlanSheetView: View {
             startDate: formatter.string(from: startDate),
             endDate: formatter.string(from: endDate),
             status: .planning,
-            totalBudget: 0,
             schedules: schedules,
             createdAt: formatter.string(from: Date())
         )
@@ -613,22 +644,217 @@ struct CreatePlanSheetView: View {
     }
 }
 
-// MARK: - 7. 방문지 검색 및 추가 시트 (AddPlaceSheetView)
+// MARK: - 7. 여행 계획 전체 정보 및 날짜 수정 뷰 (EditPlanInfoSheetView)
 
-struct AddPlaceSheetView: View {
+struct EditPlanInfoSheetView: View {
     @Environment(\.dismiss) var dismiss
-    var onAdd: (PlanPlaceItem) -> Void
+    let plan: TravelPlan
+    var onSave: (TravelPlan) -> Void
+    
+    @State private var title: String
+    @State private var destination: String
+    @State private var status: PlanStatus
+    @State private var startDate: Date
+    @State private var endDate: Date
+    @State private var validationError = ""
+    @State private var showAlert = false
+    
+    init(plan: TravelPlan, onSave: @escaping (TravelPlan) -> Void) {
+        self.plan = plan
+        self.onSave = onSave
+        _title = State(initialValue: plan.title)
+        _destination = State(initialValue: plan.destination)
+        _status = State(initialValue: plan.status)
+        
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        let sDate = formatter.date(from: plan.startDate) ?? Date()
+        let eDate = formatter.date(from: plan.endDate) ?? Date()
+        _startDate = State(initialValue: sDate)
+        _endDate = State(initialValue: eDate)
+    }
+    
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Color(hex: "#F4F1DE").ignoresSafeArea()
+                
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("여행 상태")
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundColor(Color(hex: "#3D405B"))
+                            Picker("상태", selection: $status) {
+                                ForEach(PlanStatus.allCases, id: \.self) { s in
+                                    Text(s.displayName).tag(s)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+                        }
+                        
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("여행 제목 *")
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundColor(Color(hex: "#3D405B"))
+                            TextField("여행 제목", text: $title)
+                                .padding(12)
+                                .background(Color.white)
+                                .cornerRadius(8)
+                        }
+                        
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("여행지 *")
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundColor(Color(hex: "#3D405B"))
+                            TextField("여행지", text: $destination)
+                                .padding(12)
+                                .background(Color.white)
+                                .cornerRadius(8)
+                        }
+                        
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("여행 기간 수정 *")
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundColor(Color(hex: "#3D405B"))
+                            
+                            DatePicker("출발일", selection: $startDate, displayedComponents: .date)
+                                .datePickerStyle(.compact)
+                            
+                            DatePicker("도착일", selection: $endDate, in: startDate..., displayedComponents: .date)
+                                .datePickerStyle(.compact)
+                            
+                            Text("※ 날짜 변경 시 기존 Day별 일정 데이터는 안전하게 유지 및 정렬됩니다.")
+                                .font(.system(size: 11))
+                                .foregroundColor(.gray)
+                        }
+                        .padding(14)
+                        .background(Color.white)
+                        .cornerRadius(10)
+                    }
+                    .padding(20)
+                }
+            }
+            .navigationTitle("계획 정보 수정")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("취소") { dismiss() }
+                        .foregroundColor(Color(hex: "#3D405B"))
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("저장") {
+                        saveChanges()
+                    }
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundColor(Color(hex: "#3D405B"))
+                }
+            }
+            .alert("입력 오류", isPresented: $showAlert) {
+                Button("확인", role: .cancel) { }
+            } message: {
+                Text(validationError)
+            }
+        }
+    }
+    
+    private func saveChanges() {
+        let cleanTitle = TimeCapsuleSecurityHelper.sanitize(title.trimmingCharacters(in: .whitespacesAndNewlines))
+        let cleanDest = TimeCapsuleSecurityHelper.sanitize(destination.trimmingCharacters(in: .whitespacesAndNewlines))
+        
+        if cleanTitle.isEmpty {
+            validationError = "여행 제목을 입력해 주세요."
+            showAlert = true
+            return
+        }
+        if cleanDest.isEmpty {
+            validationError = "여행지를 입력해 주세요."
+            showAlert = true
+            return
+        }
+        if endDate < startDate {
+            validationError = "도착일은 출발일보다 빠를 수 없습니다."
+            showAlert = true
+            return
+        }
+        
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        
+        var newSchedules: [PlanDaySchedule] = []
+        var currentDate = startDate
+        var dayNum = 1
+        
+        while currentDate <= endDate {
+            let dateStr = formatter.string(from: currentDate)
+            let existingPlaces = plan.schedules.first(where: { $0.dayNumber == dayNum })?.places ?? []
+            
+            newSchedules.append(
+                PlanDaySchedule(
+                    dayNumber: dayNum,
+                    dateString: dateStr,
+                    places: existingPlaces
+                )
+            )
+            guard let nextDate = Calendar.current.date(byAdding: .day, value: 1, to: currentDate) else { break }
+            currentDate = nextDate
+            dayNum += 1
+        }
+        
+        var updated = plan
+        updated.title = cleanTitle
+        updated.destination = cleanDest
+        updated.status = status
+        updated.startDate = formatter.string(from: startDate)
+        updated.endDate = formatter.string(from: endDate)
+        updated.schedules = newSchedules
+        
+        onSave(updated)
+        dismiss()
+    }
+}
+
+// MARK: - 8. 방문지 추가 및 수정 시트 (PlaceFormSheetView)
+
+enum PlaceFormMode {
+    case create
+    case edit(PlanPlaceItem)
+}
+
+struct PlaceFormSheetView: View {
+    @Environment(\.dismiss) var dismiss
+    let mode: PlaceFormMode
+    var onSave: (PlanPlaceItem) -> Void
     
     @State private var searchQuery = ""
-    @State private var placeName = ""
-    @State private var roadAddress = ""
-    @State private var latitude: Double = 37.5665
-    @State private var longitude: Double = 126.9780
-    @State private var memo = ""
-    @State private var costString = ""
+    @State private var placeName: String
+    @State private var roadAddress: String
+    @State private var latitude: Double
+    @State private var longitude: Double
+    @State private var memo: String
     
     @StateObject private var searchCompleter = LocationSearchCompleter()
     @State private var isSearching = false
+    
+    init(mode: PlaceFormMode, onSave: @escaping (PlanPlaceItem) -> Void) {
+        self.mode = mode
+        self.onSave = onSave
+        
+        switch mode {
+        case .create:
+            _placeName = State(initialValue: "")
+            _roadAddress = State(initialValue: "")
+            _latitude = State(initialValue: 37.5665)
+            _longitude = State(initialValue: 126.9780)
+            _memo = State(initialValue: "")
+        case .edit(let item):
+            _placeName = State(initialValue: item.placeName)
+            _roadAddress = State(initialValue: item.roadAddress ?? "")
+            _latitude = State(initialValue: item.latitude)
+            _longitude = State(initialValue: item.longitude)
+            _memo = State(initialValue: item.memo)
+        }
+    }
     
     var body: some View {
         NavigationStack {
@@ -645,7 +871,7 @@ struct AddPlaceSheetView: View {
                             HStack {
                                 Image(systemName: "magnifyingglass")
                                     .foregroundColor(.gray)
-                                TextField("방문할 곳 검색 (예: 성산일출봉, 카페)", text: $searchQuery)
+                                TextField("방문할 곳 검색 (예: 해운대, 카페)", text: $searchQuery)
                                     .onChange(of: searchQuery) { _, q in
                                         searchCompleter.search(query: q)
                                         isSearching = !q.isEmpty
@@ -689,15 +915,19 @@ struct AddPlaceSheetView: View {
                                 .cornerRadius(8)
                         }
                         
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("예상 지출 금액 (원)")
-                                .font(.system(size: 13, weight: .bold))
-                                .foregroundColor(Color(hex: "#3D405B"))
-                            TextField("예: 15000", text: $costString)
-                                .keyboardType(.numberPad)
-                                .padding(10)
-                                .background(Color.white)
-                                .cornerRadius(8)
+                        if !roadAddress.isEmpty {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("도로명 주소")
+                                    .font(.system(size: 13, weight: .bold))
+                                    .foregroundColor(Color(hex: "#3D405B"))
+                                Text(roadAddress)
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.gray)
+                                    .padding(10)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(Color.white.opacity(0.8))
+                                    .cornerRadius(8)
+                            }
                         }
                         
                         VStack(alignment: .leading, spacing: 6) {
@@ -713,7 +943,7 @@ struct AddPlaceSheetView: View {
                     .padding(20)
                 }
             }
-            .navigationTitle("방문지 등록")
+            .navigationTitle(isEditMode ? "방문지 수정" : "방문지 등록")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -721,7 +951,7 @@ struct AddPlaceSheetView: View {
                         .foregroundColor(Color(hex: "#3D405B"))
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("추가") {
+                    Button(isEditMode ? "저장" : "추가") {
                         savePlace()
                     }
                     .disabled(placeName.trimmingCharacters(in: .whitespaces).isEmpty)
@@ -730,6 +960,11 @@ struct AddPlaceSheetView: View {
                 }
             }
         }
+    }
+    
+    private var isEditMode: Bool {
+        if case .edit = mode { return true }
+        return false
     }
     
     private func selectSearchPlace(_ completion: MKLocalSearchCompletion) {
@@ -747,17 +982,25 @@ struct AddPlaceSheetView: View {
     }
     
     private func savePlace() {
-        let cost = Int(costString) ?? 0
-        let item = PlanPlaceItem(
-            placeName: TimeCapsuleSecurityHelper.sanitize(placeName),
-            roadAddress: roadAddress,
-            latitude: latitude,
-            longitude: longitude,
-            visitOrder: 1,
-            estimatedCost: cost,
-            memo: TimeCapsuleSecurityHelper.sanitize(memo)
-        )
-        onAdd(item)
+        switch mode {
+        case .create:
+            let newItem = PlanPlaceItem(
+                placeName: TimeCapsuleSecurityHelper.sanitize(placeName),
+                roadAddress: roadAddress.isEmpty ? nil : roadAddress,
+                latitude: latitude,
+                longitude: longitude,
+                visitOrder: 1,
+                memo: TimeCapsuleSecurityHelper.sanitize(memo)
+            )
+            onSave(newItem)
+        case .edit(var existing):
+            existing.placeName = TimeCapsuleSecurityHelper.sanitize(placeName)
+            existing.roadAddress = roadAddress.isEmpty ? nil : roadAddress
+            existing.latitude = latitude
+            existing.longitude = longitude
+            existing.memo = TimeCapsuleSecurityHelper.sanitize(memo)
+            onSave(existing)
+        }
         dismiss()
     }
 }
