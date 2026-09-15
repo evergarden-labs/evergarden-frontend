@@ -5,7 +5,7 @@ import MapKit
 import CoreLocation
 import Combine
 
-// MARK: - 0. SpriteKit / UIKit Hex Extension
+// MARK: - 0. Color Helper
 extension SKColor {
     convenience init(hex: String) {
         let scanner = Scanner(string: hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted))
@@ -21,7 +21,7 @@ extension SKColor {
     }
 }
 
-// MARK: - 1. 데이터 모델
+// MARK: - 1. API 명세서 모델
 
 enum TimeCapsuleStatus: String, Codable, CaseIterable {
     case sealed = "SEALED"
@@ -87,7 +87,6 @@ struct TimeCapsuleDetail: Identifiable, Codable, Equatable {
     var content: String?
 }
 
-// MARK: - 🌟 보안 및 UI 헬퍼
 enum TimeCapsuleSecurityHelper {
     static func sanitize(_ input: String) -> String {
         let dangerousPatterns = ["'", "\"", ";", "--", "/*", "*/", "script", "SELECT", "INSERT", "UPDATE", "DELETE", "DROP", "UNION"]
@@ -117,7 +116,7 @@ struct TimeCapsuleJellyBackground: View {
     }
 }
 
-// MARK: - 2. API 통신 서비스 (인메모리 지속성 보장)
+// MARK: - 2. API 통신 서비스
 
 actor TimeCapsuleService {
     static let shared = TimeCapsuleService()
@@ -145,7 +144,7 @@ actor TimeCapsuleService {
     func openCapsule(summary: TimeCapsuleSummary) async throws -> TimeCapsuleDetail {
         if let idx = inMemoryCapsules.firstIndex(where: { $0.capsuleId == summary.capsuleId }) {
             inMemoryCapsules[idx].status = .opened
-            inMemoryCapsules[idx].openedAt = "2026-09-14T00:00:00Z"
+            inMemoryCapsules[idx].openedAt = "2026-09-15T00:00:00Z"
         }
         return TimeCapsuleDetail(
             capsuleId: summary.capsuleId,
@@ -154,7 +153,7 @@ actor TimeCapsuleService {
             unlockType: summary.unlockType,
             thumbnailUrl: nil,
             createdAt: summary.createdAt,
-            openedAt: "2026-09-14T00:00:00Z",
+            openedAt: "2026-09-15T00:00:00Z",
             unlockCondition: UnlockCondition(
                 type: summary.unlockType,
                 satisfied: true,
@@ -169,7 +168,7 @@ actor TimeCapsuleService {
     }
 }
 
-// MARK: - 3. SpriteKit 오솔길 트레일 씬
+// MARK: - 3. SpriteKit 타일링 배경 씬
 
 final class TimeCapsuleTrailScene: SKScene {
     var capsules: [TimeCapsuleSummary] = []
@@ -177,11 +176,16 @@ final class TimeCapsuleTrailScene: SKScene {
     
     private let cameraNode = SKCameraNode()
     private let worldNode = SKNode()
+    
     private var totalWorldHeight: CGFloat = 1200
     private var previousTouchY: CGFloat?
     
+    // timecap_bg.png 비율 유지 계산
+    private var tileWidth: CGFloat = 0
+    private var tileHeight: CGFloat = 0
+    
     override func didMove(to view: SKView) {
-        backgroundColor = SKColor(hex: "#5B8C46")
+        backgroundColor = SKColor(hex: "#1E441B") // 풀숲 외곽 보정 배경색
         scaleMode = .resizeFill
         
         if cameraNode.parent == nil {
@@ -201,127 +205,107 @@ final class TimeCapsuleTrailScene: SKScene {
         worldNode.removeAllChildren()
         guard size.width > 50, size.height > 50 else { return }
         
-        let stepHeight: CGFloat = 190
-        let count = max(capsules.count, 4)
-        totalWorldHeight = CGFloat(count + 1) * stepHeight + size.height * 0.45
+        // 가로폭은 화면 가로에 맞추거나, 아이패드/맥의 경우 최대폭 기준 정렬
+        tileWidth = max(size.width, 390)
+        tileHeight = tileWidth * (16.0 / 9.0) // 9:16 비율 기준
         
-        drawWindingPath(stepHeight: stepHeight, count: count)
-        drawSceneryDecorations(stepHeight: stepHeight, count: count)
+        // 캡슐 개수에 따라 타일 개수 동적 확장 (무제한 타일링)
+        let itemsPerTile: CGFloat = 2.5
+        let neededTiles = max(Int(ceil(CGFloat(capsules.count) / itemsPerTile)) + 1, 3)
+        totalWorldHeight = CGFloat(neededTiles) * tileHeight
         
-        let sortedCapsules = capsules.sorted {
-            if $0.status == .unlockable && $1.status != .unlockable { return true }
-            if $0.status != .unlockable && $1.status == .unlockable { return false }
-            return ($0.unlockDate ?? $0.createdAt) < ($1.unlockDate ?? $1.createdAt)
+        // 1. 수직 타일 연속 배치
+        for i in 0..<neededTiles {
+            let tileNode = SKSpriteNode(imageNamed: "timecap_bg")
+            tileNode.texture?.filteringMode = .nearest // 픽셀 아트 안티앨리어싱 방지
+            tileNode.size = CGSize(width: tileWidth, height: tileHeight)
+            tileNode.anchorPoint = CGPoint(x: 0.5, y: 0.0)
+            tileNode.position = CGPoint(x: size.width * 0.5, y: CGFloat(i) * tileHeight)
+            tileNode.zPosition = 0
+            worldNode.addChild(tileNode)
         }
         
-        for (index, capsule) in sortedCapsules.enumerated() {
-            let progress = CGFloat(index + 1) / CGFloat(count + 1)
-            let yPos = totalWorldHeight - (progress * CGFloat(count) * stepHeight) - 80
+        // 2. 타임캡슐 아이템 배치
+        let stepDistance = totalWorldHeight / CGFloat(capsules.count + 1)
+        
+        for (index, capsule) in capsules.enumerated() {
+            let yPos = totalWorldHeight - CGFloat(index + 1) * stepDistance
             
-            let centerX = size.width * 0.5 + sin(progress * .pi * 3.0) * (size.width * 0.22)
+            // 해당 y좌표가 타일 내 어디에 위치하는지 계산 (0.0 ~ 1.0)
+            let relativeY = yPos.truncatingRemainder(dividingBy: tileHeight)
+            let normalizedY = relativeY / tileHeight
+            
+            // timecap_bg 에셋 내부 굽이치는 흙길 곡선 좌표 산출
+            let xOffsetRatio: CGFloat
+            if normalizedY < 0.33 {
+                let t = normalizedY / 0.33
+                xOffsetRatio = sin(t * .pi) * 0.18
+            } else if normalizedY < 0.66 {
+                let t = (normalizedY - 0.33) / 0.33
+                xOffsetRatio = -sin(t * .pi) * 0.18
+            } else {
+                let t = (normalizedY - 0.66) / 0.34
+                xOffsetRatio = sin(t * .pi) * 0.16
+            }
+            
+            let pathCenterX = (size.width * 0.5) + (xOffsetRatio * tileWidth)
             let isLeft = index % 2 == 0
             
-            let bottleX = isLeft ? centerX - 65 : centerX + 65
+            // 유리병 배치 (길 안쪽 가장자리)
+            let bottleX = isLeft ? pathCenterX - 45 : pathCenterX + 45
             createGlassBottleNode(capsule: capsule, position: CGPoint(x: bottleX, y: yPos))
             
-            let signX = isLeft ? centerX + 75 : centerX - 75
-            createWoodenSignNode(capsule: capsule, position: CGPoint(x: signX, y: yPos + 8))
+            // 표지판 배치 (길 바깥쪽 풀밭)
+            let signX = isLeft ? pathCenterX + 60 : pathCenterX - 60
+            createWoodenSignNode(capsule: capsule, position: CGPoint(x: signX, y: yPos + 10))
         }
         
+        // 카메라 초기 위치: 가장 최신(위쪽) 캡슐 기준
         let initialY = totalWorldHeight - size.height * 0.5
         cameraNode.position = CGPoint(x: size.width * 0.5, y: max(size.height * 0.5, initialY))
-    }
-    
-    private func drawWindingPath(stepHeight: CGFloat, count: Int) {
-        let path = CGMutablePath()
-        let steps = 100
-        let startY = totalWorldHeight
-        let endY: CGFloat = 0
-        
-        for i in 0...steps {
-            let t = CGFloat(i) / CGFloat(steps)
-            let y = startY - t * (startY - endY)
-            let progress = (totalWorldHeight - y) / (CGFloat(count) * stepHeight)
-            let x = size.width * 0.5 + sin(progress * .pi * 3.0) * (size.width * 0.22)
-            
-            if i == 0 {
-                path.move(to: CGPoint(x: x, y: y))
-            } else {
-                path.addLine(to: CGPoint(x: x, y: y))
-            }
-        }
-        
-        let trailBase = SKShapeNode(path: path)
-        trailBase.lineWidth = 110
-        trailBase.strokeColor = SKColor(hex: "#C69E6D")
-        trailBase.lineCap = .round
-        trailBase.lineJoin = .round
-        worldNode.addChild(trailBase)
-        
-        let trailInner = SKShapeNode(path: path)
-        trailInner.lineWidth = 85
-        trailInner.strokeColor = SKColor(hex: "#B88E5B")
-        trailInner.lineCap = .round
-        trailInner.lineJoin = .round
-        worldNode.addChild(trailInner)
-    }
-    
-    private func drawSceneryDecorations(stepHeight: CGFloat, count: Int) {
-        for i in 0...(count * 2) {
-            let y = totalWorldHeight - CGFloat(i) * (stepHeight * 0.6) - 50
-            let isLeft = i % 2 == 0
-            let x = isLeft ? CGFloat.random(in: 20...50) : size.width - CGFloat.random(in: 20...50)
-            
-            let bush = SKShapeNode(circleOfRadius: CGFloat.random(in: 22...30))
-            bush.fillColor = SKColor(hex: i % 3 == 0 ? "#3E6B2E" : "#4B7F36")
-            bush.strokeColor = SKColor(hex: "#2F5220")
-            bush.lineWidth = 2
-            bush.position = CGPoint(x: x, y: y)
-            worldNode.addChild(bush)
-        }
     }
     
     private func createGlassBottleNode(capsule: TimeCapsuleSummary, position: CGPoint) {
         let node = SKNode()
         node.position = position
         node.name = "capsule_\(capsule.capsuleId)"
+        node.zPosition = 10
         
-        let soil = SKShapeNode(ellipseOf: CGSize(width: 54, height: 24))
-        soil.fillColor = SKColor(hex: "#6B4423")
-        soil.strokeColor = SKColor(hex: "#4A2E18")
-        soil.position = CGPoint(x: 0, y: -18)
+        let soil = SKShapeNode(ellipseOf: CGSize(width: 48, height: 20))
+        soil.fillColor = SKColor(hex: "#5C3A21")
+        soil.strokeColor = SKColor(hex: "#3D2411")
+        soil.position = CGPoint(x: 0, y: -16)
         soil.name = node.name
         node.addChild(soil)
         
-        let bottle = SKShapeNode(rectOf: CGSize(width: 44, height: 56), cornerRadius: 12)
+        let bottle = SKShapeNode(rectOf: CGSize(width: 38, height: 50), cornerRadius: 10)
         bottle.fillColor = SKColor(hex: "#E0F2FE").withAlphaComponent(0.85)
         bottle.strokeColor = SKColor(hex: "#94A3B8")
-        bottle.lineWidth = 2
+        bottle.lineWidth = 1.5
         bottle.name = node.name
         node.addChild(bottle)
         
-        let cork = SKShapeNode(rectOf: CGSize(width: 22, height: 10), cornerRadius: 3)
+        let cork = SKShapeNode(rectOf: CGSize(width: 18, height: 8), cornerRadius: 2)
         cork.fillColor = SKColor(hex: "#B07D4F")
         cork.strokeColor = SKColor(hex: "#784E29")
-        cork.position = CGPoint(x: 0, y: 30)
+        cork.position = CGPoint(x: 0, y: 26)
         cork.name = node.name
         node.addChild(cork)
         
-        // 🌟 개별 캡슐 상태에 따른 고유 아이콘 렌더링
         if capsule.status == .opened {
             let flower = SKLabelNode(text: "🌸")
-            flower.fontSize = 24
-            flower.position = CGPoint(x: 0, y: -10)
+            flower.fontSize = 22
+            flower.position = CGPoint(x: 0, y: -8)
             flower.name = node.name
             node.addChild(flower)
         } else if capsule.status == .unlockable {
             let sprout = SKLabelNode(text: "🌱")
-            sprout.fontSize = 22
-            sprout.position = CGPoint(x: 0, y: -8)
+            sprout.fontSize = 20
+            sprout.position = CGPoint(x: 0, y: -6)
             sprout.name = node.name
             node.addChild(sprout)
             
-            let glow = SKShapeNode(circleOfRadius: 26)
+            let glow = SKShapeNode(circleOfRadius: 24)
             glow.fillColor = SKColor.yellow.withAlphaComponent(0.3)
             glow.strokeColor = .clear
             let pulse = SKAction.sequence([
@@ -332,8 +316,8 @@ final class TimeCapsuleTrailScene: SKScene {
             node.addChild(glow)
         } else {
             let seed = SKLabelNode(text: capsule.unlockType == .location ? "📍" : "🌰")
-            seed.fontSize = 18
-            seed.position = CGPoint(x: 0, y: -10)
+            seed.fontSize = 16
+            seed.position = CGPoint(x: 0, y: -8)
             seed.name = node.name
             node.addChild(seed)
         }
@@ -345,28 +329,29 @@ final class TimeCapsuleTrailScene: SKScene {
         let node = SKNode()
         node.position = position
         node.name = "capsule_\(capsule.capsuleId)"
+        node.zPosition = 10
         
-        let pole = SKShapeNode(rectOf: CGSize(width: 8, height: 36))
-        pole.fillColor = SKColor(hex: "#6B4423")
-        pole.strokeColor = SKColor(hex: "#4A2E18")
-        pole.position = CGPoint(x: 0, y: -10)
+        let pole = SKShapeNode(rectOf: CGSize(width: 6, height: 32))
+        pole.fillColor = SKColor(hex: "#5C3A21")
+        pole.strokeColor = SKColor(hex: "#3D2411")
+        pole.position = CGPoint(x: 0, y: -8)
         pole.name = node.name
         node.addChild(pole)
         
-        let board = SKShapeNode(rectOf: CGSize(width: 84, height: 28), cornerRadius: 6)
+        let board = SKShapeNode(rectOf: CGSize(width: 80, height: 26), cornerRadius: 5)
         board.fillColor = SKColor(hex: "#87553A")
         board.strokeColor = SKColor(hex: "#4A2E18")
-        board.lineWidth = 2
-        board.position = CGPoint(x: 0, y: 10)
+        board.lineWidth = 1.5
+        board.position = CGPoint(x: 0, y: 8)
         board.name = node.name
         node.addChild(board)
         
         let labelText = capsule.unlockType == .location ? (capsule.placeName ?? "지정 위치") : (capsule.unlockDate ?? String(capsule.createdAt.prefix(10)).replacingOccurrences(of: "-", with: "."))
         let textLabel = SKLabelNode(text: labelText)
         textLabel.fontName = "AppleSDGothicNeo-Bold"
-        textLabel.fontSize = 10
+        textLabel.fontSize = 9
         textLabel.fontColor = SKColor(hex: "#FDE68A")
-        textLabel.position = CGPoint(x: 0, y: 6)
+        textLabel.position = CGPoint(x: 0, y: 5)
         textLabel.name = node.name
         node.addChild(textLabel)
         
@@ -440,10 +425,10 @@ struct TimeCapsuleView: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("타임캡슐 오솔길")
                                     .font(.system(size: availableWidth * 0.065, weight: .heavy))
-                                    .foregroundColor(Color(hex: "#4A2E18"))
+                                    .foregroundColor(Color(hex: "#FDE68A"))
                                 Text("기다림의 시간과 장소를 따라 싹을 틔웁니다")
                                     .font(.system(size: availableWidth * 0.032, weight: .bold))
-                                    .foregroundColor(Color(hex: "#5C3A21"))
+                                    .foregroundColor(Color(hex: "#FEF3C7"))
                             }
                             Spacer()
                         }
@@ -452,7 +437,7 @@ struct TimeCapsuleView: View {
                         .padding(.bottom, 12)
                         .background(
                             LinearGradient(
-                                colors: [Color(hex: "#FDE68A").opacity(0.85), Color.clear],
+                                colors: [Color.black.opacity(0.6), Color.clear],
                                 startPoint: .top,
                                 endPoint: .bottom
                             )
@@ -483,7 +468,6 @@ struct TimeCapsuleView: View {
             .toolbar(.hidden, for: .navigationBar)
             .sheet(item: $selectedCapsule) { capsule in
                 TimeCapsuleDetailModal(capsuleSummary: capsule, onOpened: { updated in
-                    // 🌟 선택한 특정 ID만 정확히 개봉 상태로 업데이트
                     if let index = capsules.firstIndex(where: { $0.capsuleId == updated.capsuleId }) {
                         capsules[index].status = .opened
                         capsules[index].openedAt = updated.openedAt
@@ -529,7 +513,7 @@ struct TimeCapsuleView: View {
     }
 }
 
-// MARK: - 5. 상세 확인 및 개봉 모달 (TC-03, TC-05, TC-06, TC-07)
+// MARK: - 5. 상세 모달 (TC-03, TC-05, TC-06, TC-07)
 
 struct TimeCapsuleDetailModal: View {
     let capsuleSummary: TimeCapsuleSummary
@@ -674,13 +658,13 @@ struct TimeCapsuleDetailModal: View {
     private func openCapsule() {
         guard var current = detail else { return }
         current.status = .opened
-        current.openedAt = "2026-09-14T00:00:00Z"
+        current.openedAt = "2026-09-15T00:00:00Z"
         self.detail = current
         onOpened(current)
     }
 }
 
-// MARK: - 6. 타임캡슐 생성 뷰
+// MARK: - 6. 타임캡슐 생성 뷰 (MapKit 장소 검색 및 iOS 17+ Map API 규격)
 
 struct CreateTimeCapsuleView: View {
     @Environment(\.dismiss) var dismiss
@@ -890,13 +874,10 @@ struct CreateTimeCapsuleView: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy.MM.dd"
         
-        let isTodayOrPast = unlockType == .date && formatter.string(from: unlockDate) <= formatter.string(from: Date())
-        let initialStatus: TimeCapsuleStatus = isTodayOrPast ? .unlockable : .sealed
-        
         let newEntity = TimeCapsuleSummary(
             capsuleId: Int64.random(in: 100...999),
             title: safeTitle,
-            status: initialStatus,
+            status: .sealed,
             unlockType: unlockType,
             thumbnailUrl: nil,
             createdAt: formatter.string(from: Date()),
